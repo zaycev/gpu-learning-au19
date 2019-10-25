@@ -1,0 +1,20 @@
+[package]
+name = "triangle"
+version = "0.1.0"
+authors = ["Vladimir Zaytsev <zaytsev@uber.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+winit = "0.19.3"
+gfx-hal = "0.3.1"
+
+[features]
+default = ["metal"]
+metal = ["gfx-backend-metal"]
+
+[target.'cfg(any(target_os = "macos", all(target_os = "ios", target_arch = "aarch64")))'.dependencies.gfx-backend-metal]
+version = "0.3.0"
+features = ["winit"]
+optional = true
