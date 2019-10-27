@@ -8,13 +8,12 @@ edition = "2018"
 
 [dependencies]
 winit = "0.19.3"
-gfx-hal = "0.3.1"
+gfx-hal = "0.4.0"
 
 [features]
 default = ["metal"]
 metal = ["gfx-backend-metal"]
 
 [target.'cfg(any(target_os = "macos", all(target_os = "ios", target_arch = "aarch64")))'.dependencies.gfx-backend-metal]
-version = "0.3.0"
-features = ["winit"]
+version = "0.4.0"
 optional = true
