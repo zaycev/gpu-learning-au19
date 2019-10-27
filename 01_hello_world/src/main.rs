@@ -26,7 +26,7 @@ use std::thread;
 use std::time;
 
 fn main() {
-    let title = "Triangle Example";
+    let title = "GPU Learning Class: 01 Hello World";
     let mut events_loop = EventsLoop::new();
     let mut size = LogicalSize {
         width: 512.0,
