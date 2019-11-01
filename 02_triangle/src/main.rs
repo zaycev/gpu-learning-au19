@@ -34,9 +34,12 @@ use core::ops::Range;
 use log;
 use simple_logger;
 
+use std::cmp;
+
 fn main() {
+
     // Setup logger.
-    simple_logger::init_with_level(log::Level::Info).unwrap();
+    simple_logger::init_with_level(log::Level::Error).unwrap();
 
     let title = "GPU Learning Class: 02 Single Triangle pipeline".to_string();
     let name = title.clone();
@@ -412,12 +415,10 @@ struct EngineState<B: Backend> {
     pub command_buffer_pools: Vec<B::CommandPool>,
     pub command_buffer_pools_lists: Vec<Vec<B::CommandBuffer>>,
 
-    // Graphic pipeline state objects.
+    // Graphic pipeline state objects and vertex buffer.
     pub pipeline: B::GraphicsPipeline,
     pub pipeline_layout: B::PipelineLayout,
     pub descriptor_set_layouts: Vec<B::DescriptorSetLayout>,
-
-    // Vertex buffer.
     pub vertex_memory: B::Memory,
     pub vertex_buffer: B::Buffer,
     pub vertex_memory_size: u64,
@@ -426,6 +427,7 @@ struct EngineState<B: Backend> {
     // Needed to acquire buffers, semaphores and fences corresponding to the current image
     // in the back buffer of the swap-chain.
     sem_index: usize,
+    frame_counter: u32,
 }
 
 /// Engine implementation.
@@ -738,14 +740,17 @@ impl<B: Backend> EngineState<B> {
                 .unwrap()
         };
         let layouts = vec![layout];
-        let constants: Vec<(pso::ShaderStageFlags, Range<u32>)> = vec![];
+
+        let constants: Vec<(pso::ShaderStageFlags, Range<u32>)> =
+            vec![(pso::ShaderStageFlags::FRAGMENT, 0..4)];
+
         let pipeline_layout = unsafe {
             gpu.device
                 .create_pipeline_layout(&layouts, constants)
                 .unwrap()
         };
 
-        //
+        // Create graphics pipeline.
         let pipeline_primitive = pso::Primitive::TriangleList;
         let pipeline_desc = pso::GraphicsPipelineDesc {
             shaders: shaders_set,
@@ -830,6 +835,7 @@ impl<B: Backend> EngineState<B> {
             vertex_buffer,
             vertex_memory,
             vertex_memory_size,
+            frame_counter: 0,
         }
     }
 
@@ -852,6 +858,8 @@ impl<B: Backend> EngineState<B> {
         color: [f32; 4],
         triangle: &Triangle,
     ) -> Result<(), String> {
+        self.frame_counter += 1;
+
         // Write triangle data to vertex buffer.
         unsafe {
             let mapping = gpu
@@ -931,6 +939,12 @@ impl<B: Backend> EngineState<B> {
                     color: command::ClearColor { float32: color },
                 }],
                 command::SubpassContents::Inline,
+            );
+            command_buffer.push_graphics_constants(
+                &self.pipeline_layout,
+                pso::ShaderStageFlags::FRAGMENT,
+                0,
+                &[self.frame_counter],
             );
             command_buffer.draw(0..3, 0..1);
             command_buffer.end_render_pass();
