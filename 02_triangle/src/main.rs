@@ -100,7 +100,7 @@ fn main() {
     };
 
     // Create our engine for drawing state.
-    let mut engine = GraphicsEngine::new(gpu, surface, adapter, size, pixel_format, window, title);
+    let mut engine = GraphicsEngine::init(gpu, surface, adapter, size, pixel_format, window, title);
 
     // Main loop:
     //
@@ -238,7 +238,7 @@ pub struct GraphicsEngine<B: Backend> {
 /// GraphicsEngine implementation.
 impl<B: Backend> GraphicsEngine<B> {
     /// Creates a new graphics engine.
-    pub fn new(
+    pub fn init(
         mut gpu: Gpu<B>,
         mut surface: B::Surface,
         adapter: Adapter<B>,
@@ -259,13 +259,13 @@ impl<B: Backend> GraphicsEngine<B> {
         );
         let clear_color = [0.03, 0.03, 0.03, 1.0];
         Self {
-            gpu: gpu,
-            queue_group: queue_group,
-            surface: surface,
-            pixel_format: pixel_format,
-            adapter: adapter,
-            clear_color: clear_color,
-            window_size: window_size,
+            gpu,
+            queue_group,
+            surface,
+            pixel_format,
+            adapter,
+            clear_color,
+            window_size,
             state: Some(state),
             title_format: title.clone(),
             title,
