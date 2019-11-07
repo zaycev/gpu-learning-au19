@@ -34,8 +34,6 @@ use core::ops::Range;
 use log;
 use simple_logger;
 
-use std::cmp;
-
 fn main() {
 
     // Setup logger.
@@ -416,6 +414,8 @@ struct EngineState<B: Backend> {
     pub command_buffer_pools_lists: Vec<Vec<B::CommandBuffer>>,
 
     // Graphic pipeline state objects and vertex buffer.
+    //
+    //
     pub pipeline: B::GraphicsPipeline,
     pub pipeline_layout: B::PipelineLayout,
     pub descriptor_set_layouts: Vec<B::DescriptorSetLayout>,
@@ -731,7 +731,7 @@ impl<B: Backend> EngineState<B> {
             }],
         };
 
-        //
+        // This binds the resource information to the pipeline.
         let bindings: Vec<pso::DescriptorSetLayoutBinding> = vec![];
         let samplers: Vec<B::Sampler> = vec![];
         let layout = unsafe {
@@ -754,7 +754,7 @@ impl<B: Backend> EngineState<B> {
         let pipeline_primitive = pso::Primitive::TriangleList;
         let pipeline_desc = pso::GraphicsPipelineDesc {
             shaders: shaders_set,
-            rasterizer: rasterizer,
+            rasterizer,
             vertex_buffers: vertex_buffers,
             attributes: vertex_attributes,
             input_assembler: pso::InputAssemblerDesc::new(pipeline_primitive),
@@ -818,20 +818,20 @@ impl<B: Backend> EngineState<B> {
         }
 
         EngineState {
-            size: size,
-            swapchain: swapchain,
-            render_pass: render_pass,
-            frame_buffer_fences: frame_buffer_fences,
-            frame_buffer_images: frame_buffer_images,
-            frame_buffer_list: frame_buffer_list,
-            command_buffer_pools: command_buffer_pools,
-            command_buffer_pools_lists: command_buffer_pools_lists,
-            acquire_semaphores: acquire_semaphores,
-            present_semaphores: present_semaphores,
+            size,
+            swapchain,
+            render_pass,
+            frame_buffer_fences,
+            frame_buffer_images,
+            frame_buffer_list,
+            command_buffer_pools,
+            command_buffer_pools_lists,
+            acquire_semaphores,
+            present_semaphores,
             pipeline,
             pipeline_layout,
             descriptor_set_layouts: layouts,
-            sem_index: sem_index,
+            sem_index,
             vertex_buffer,
             vertex_memory,
             vertex_memory_size,
