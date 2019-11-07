@@ -1,5 +1,5 @@
 [package]
-name = "triangle"
+name = "class2"
 version = "0.1.0"
 authors = ["Vladimir Zaytsev <zaytsev@uber.com>"]
 edition = "2018"

@@ -9,9 +9,7 @@ use hal::memory::Properties;
 use hal::window::Extent2D;
 use hal::{Backend, MemoryTypeId};
 
-///
-/// TODO
-///
+/// DepthImage bundles image, its view and allocated memory.
 pub struct DepthImage<B: Backend> {
     pub image: B::Image,
     pub image_view: B::ImageView,
@@ -19,12 +17,9 @@ pub struct DepthImage<B: Backend> {
 }
 
 impl<B: Backend> DepthImage<B> {
-    ///
-    /// TODO
-    ///
+    /// Creates new depth image.
     pub fn new(adapter: &Adapter<B>, gpu: &Gpu<B>, extent: Extent2D) -> Self {
         // Image properties.
-
         let image_kind = image::Kind::D2(extent.width, extent.height, 1, 1);
         let image_mip_levels = 1;
         let image_format = format::Format::D32Sfloat;
@@ -32,8 +27,8 @@ impl<B: Backend> DepthImage<B> {
         let image_usage = image::Usage::DEPTH_STENCIL_ATTACHMENT;
         let image_caps = image::ViewCapabilities::empty();
 
+        // Create image, view and memory for depth stencil attachment.
         let (image, image_view, memory) = unsafe {
-            // Create image.
             let mut image = gpu
                 .device
                 .create_image(
@@ -43,8 +38,7 @@ impl<B: Backend> DepthImage<B> {
                     image_tiling,
                     image_usage,
                     image_caps,
-                )
-                .unwrap();
+                ).unwrap();
 
             // Allocate memory for image.
             let requirements = gpu.device.get_image_requirements(&image);
@@ -90,10 +84,6 @@ impl<B: Backend> DepthImage<B> {
 
             (image, image_view, memory)
         };
-        Self {
-            image,
-            image_view,
-            memory,
-        }
+        Self { image, image_view, memory }
     }
 }

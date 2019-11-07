@@ -3,7 +3,7 @@ extern crate gfx_hal as hal;
 extern crate nalgebra as na;
 extern crate nalgebra_glm as glm;
 
-use class3::{DepthImage, FrameImage, Model, Vertex, VertexBuffer, VertexBufferPrimitive};
+use class3::{DepthImage, FrameImage, Model, Vertex, Triangle, Buffer, VertexBufferPrimitive};
 use core::ops::Range;
 use gfx::memory::cast_slice;
 use hal::adapter::{Adapter, Gpu, PhysicalDevice};
@@ -98,7 +98,7 @@ fn main() {
     };
 
     let model = {
-        let path = "/Users/zaytsev/Desktop/bunny.obj.zstd".to_string();
+        let path = "/Users/zaytsev/Desktop/bunny_hq.obj.zstd".to_string();
         let file = fs::File::open(path).unwrap();
         let zstd_reader = zstd::stream::Decoder::new(file).unwrap();
         let reader = io::BufReader::new(zstd_reader);
@@ -385,13 +385,14 @@ struct EngineState<B: Backend> {
     descriptor_set_layouts: Vec<B::DescriptorSetLayout>,
 
     // Vertex buffer.
-    vertex_buffer: VertexBuffer<B, Vertex>,
+    vertex_buffer: Buffer<B, Triangle>,
 
     // Index of the currently displayed image in the swap-chain.
     // Needed to acquire buffers, semaphores and fences corresponding to the current image
     // in the back buffer of the swap-chain.
     sem_index: usize,
     frame_counter: u32,
+    loaded: bool,
 
     // View-projection marrix.
     vp: glm::Mat4,
@@ -801,7 +802,7 @@ impl<B: Backend> EngineState<B> {
 
         // Create a vertex buffer. Here we are going to allocate buffer for just a
         // single triangle
-        let vertex_buffer: VertexBuffer<B, Vertex> = VertexBuffer::new(&adapter, &gpu, 70_000);
+        let vertex_buffer = Buffer::create_vertex_buffer(&adapter, &gpu, 70_000);
 
         EngineState {
             size,
@@ -821,6 +822,7 @@ impl<B: Backend> EngineState<B> {
             sem_index,
             vertex_buffer,
             frame_counter: 0,
+            loaded: false,
             vp,
         }
     }
@@ -847,10 +849,14 @@ impl<B: Backend> EngineState<B> {
         self.frame_counter += 1;
 
         // Write triangle data to vertex buffer.
-        let mut total_vertices = 0;
-        for model in models {
-            total_vertices += self.vertex_buffer.write(gpu, model);
+        if !self.loaded {
+            self.loaded = true;
+            for model in models {
+                self.vertex_buffer.write(gpu, model);
+            }
         }
+
+        let total_vertices = self.vertex_buffer.len() * 3;
 
         // Get current semaphore index and corresponding semaphores.
         let sem_index = self.advance_semaphore_index();
@@ -901,7 +907,7 @@ impl<B: Backend> EngineState<B> {
             }
         };
 
-        let vertex_buffer_iter = iter::once((&self.vertex_buffer.vertex_buffer, 0));
+        let vertex_buffer_iter = iter::once((&self.vertex_buffer.buffer, 0));
         unsafe {
             // Start buffer.
             let flags = command::CommandBufferFlags::ONE_TIME_SUBMIT;
@@ -934,11 +940,13 @@ impl<B: Backend> EngineState<B> {
                 &[self.frame_counter],
             );
 
+            let mvp = self.vp * &models[0].m;
+
             command_buffer.push_graphics_constants(
                 &self.pipeline_layout,
                 pso::ShaderStageFlags::VERTEX,
                 0,
-                cast_slice::<f32, u32>(self.vp.as_slice()),
+                cast_slice::<f32, u32>(mvp.as_slice()),
             );
             command_buffer.draw(0..total_vertices, 0..1);
 

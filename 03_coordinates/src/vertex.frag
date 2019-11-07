@@ -30,5 +30,5 @@ void main()
 
     vec3 result = 0.05 * base_color + 0.95 * diffuse * base_color;
 
-    color = vec4(result, 1.0);
+    color = vec4(result * 0.5 + 0.5 * norm, 1.0);
 }

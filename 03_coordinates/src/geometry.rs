@@ -12,6 +12,8 @@ use std::io;
 
 use log;
 
+use crate::flat_object::{FlatObject, FlatObjectContainer};
+
 /// Vertex with position in 3D space.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -23,19 +25,20 @@ pub struct Vertex {
 }
 
 pub trait VertexBufferPrimitive {
-    /// Returns vertex buffer stride size.
-    fn stride_size() -> u32;
     /// Returns vertex buffer description.
     fn vertex_buffer_attributes() -> Vec<VertexBufferDesc>;
     /// Returns vertex buffer attribute descriptions.
     fn vertex_attributes() -> Vec<AttributeDesc>;
 }
 
-/// Implementation for vertex.
-impl VertexBufferPrimitive for Vertex {
+impl FlatObject for Vertex {
     fn stride_size() -> u32 {
         mem::size_of::<Self>() as u32
     }
+}
+
+/// Implementation for vertex.
+impl VertexBufferPrimitive for Vertex {
 
     fn vertex_buffer_attributes() -> Vec<VertexBufferDesc> {
         vec![VertexBufferDesc {
@@ -76,17 +79,26 @@ pub struct Triangle {
     pub vertices: [Vertex; 3],
 }
 
-#[derive(Debug)]
-pub struct Model {
-    /// model matrix.
-    pub m: glm::Mat4,
-    pub triangles: Vec<Triangle>,
+impl FlatObject for Triangle {
+    fn stride_size() -> u32 {
+        mem::size_of::<Self>() as u32
+    }
 }
 
+#[derive(Debug)]
+#[repr(C)]
+pub struct Model {
+    pub triangles: Vec<Triangle>,
+    pub m: glm::Mat4,
+}
+
+/// Implementation of Model.
 impl Model {
+
     /// Load model from obj stream reader.
     /// Perhaps move it to separate type.
     pub fn load_from_obj<R: io::BufRead>(reader: R, scale: f32) -> io::Result<Model> {
+
         let mut triangles: Vec<Triangle> = Vec::new();
         let mut vertices: HashMap<usize, Vertex> = HashMap::new();
 
@@ -110,7 +122,6 @@ impl Model {
                 let v1_idx = segments[1].parse::<usize>().expect(msg.as_str());
                 let v2_idx = segments[2].parse::<usize>().expect(msg.as_str());
                 let v3_idx = segments[3].parse::<usize>().expect(msg.as_str());
-
                 let mut v1 = vertices.get(&v1_idx).unwrap().clone();
                 let mut v2 = vertices.get(&v2_idx).unwrap().clone();
                 let mut v3 = vertices.get(&v3_idx).unwrap().clone();
@@ -142,4 +153,17 @@ impl Model {
 
         Ok(Model { m, triangles })
     }
+}
+
+/// Implementation of FlatObjectContainer for Model.
+impl FlatObjectContainer<Triangle> for Model {
+
+    fn flat_size(&self) -> u32 {
+        return self.triangles.len() as u32 * Triangle::stride_size();
+    }
+
+    fn flat_ptr(&self) -> *const u8 {
+        return &self.triangles[0] as *const _ as *const u8;
+    }
+
 }
