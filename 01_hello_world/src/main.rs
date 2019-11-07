@@ -288,8 +288,10 @@ struct EngineState<B: Backend> {
     pub size: Extent2D,
     pub swapchain: B::Swapchain,
 
-    // Render pass describing output of graphics pipeline, for example, color attachments and their
-    // pixel format.
+    // Render pass defines the execution process of a job: attachments, subpasses, and dependencies
+    // between those subpasses. The attachment refers to images on which the drawing is performed.
+    // The render pass also controls how the framebuffer will be treated at the beginning of the
+    // pass: it will either retain the last information on it or clear it with the given color.
     pub render_pass: B::RenderPass,
 
     // Frame buffers and corresponding stuff for each image in the swap-chain.
