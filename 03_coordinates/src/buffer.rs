@@ -13,10 +13,10 @@ use std::iter;
 use std::marker::PhantomData;
 use std::ptr;
 
-use crate::flat_object::{FlatObject, FlatObjectContainer};
+use crate::buffer_object::{FlatObject, FlatObjectContainer};
 
 
-/// Holds buffer and its memory for storing buffer objects.
+/// Holds buffer and its memory for storing flat objects.
 pub struct Buffer<B: Backend, O: FlatObject> {
     pub buffer: B::Buffer,
     pub memory: B::Memory,
@@ -36,8 +36,8 @@ impl<B: Backend, O: FlatObject> Buffer<B, O> {
         memory_type: memory::Properties) -> Self {
 
         // Create buffer.
-        let stride_size = O::stride_size();
-        let total_size = capacity * stride_size as u64;
+        let stride_size = O::stride_size() as u64;
+        let total_size = capacity * stride_size;
         let mut buffer = unsafe { gpu.device.create_buffer(total_size, memory_usage).unwrap() };
 
         // Find memory type id supporting requirements and requested memory type.
@@ -72,8 +72,13 @@ impl<B: Backend, O: FlatObject> Buffer<B, O> {
     }
 
     /// Shortcut for making a new vertex buffer.
-    pub fn create_vertex_buffer(adapter: &Adapter<B>, gpu: &Gpu<B>, capacity: u64,) -> Self {
+    pub fn create_vertex_buffer(adapter: &Adapter<B>, gpu: &Gpu<B>, capacity: u64) -> Self {
         Self::new(adapter, gpu, capacity, buffer::Usage::VERTEX, memory::Properties::DEVICE_LOCAL)
+    }
+
+    /// Shortcut for making a new uniform buffer.
+    pub fn create_uniform_buffer(adapter: &Adapter<B>, gpu: &Gpu<B>, capacity: u64) -> Self {
+        Self::new(adapter, gpu, capacity, buffer::Usage::UNIFORM, memory::Properties::DEVICE_LOCAL)
     }
 
     /// Returns number elements currently stored in the buffer.

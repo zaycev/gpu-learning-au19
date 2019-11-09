@@ -3,7 +3,7 @@ extern crate gfx_hal as hal;
 extern crate nalgebra as na;
 extern crate nalgebra_glm as glm;
 
-use class3::{DepthImage, FrameImage, Model, Vertex, Triangle, Buffer, VertexBufferPrimitive};
+use class3::{DepthImage, FrameImage, Model, Vertex, Triangle, Buffer};
 use core::ops::Range;
 use gfx::memory::cast_slice;
 use hal::adapter::{Adapter, Gpu, PhysicalDevice};
@@ -98,11 +98,11 @@ fn main() {
     };
 
     let model = {
-        let path = "/Users/zaytsev/Desktop/bunny_hq.obj.zstd".to_string();
+        let path = "/Users/zaytsev/Desktop/bunny.obj.zstd".to_string();
         let file = fs::File::open(path).unwrap();
         let zstd_reader = zstd::stream::Decoder::new(file).unwrap();
         let reader = io::BufReader::new(zstd_reader);
-        Model::load_from_obj(reader, 7.0).unwrap()
+        Model::load_from_obj(reader, Some(7.0)).unwrap()
     };
 
     let mut models = vec![model];
