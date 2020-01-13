@@ -3,42 +3,42 @@ extern crate gfx_hal as hal;
 extern crate nalgebra as na;
 extern crate nalgebra_glm as glm;
 
-use hal::adapter::{Adapter, Gpu, PhysicalDevice};
-use hal::buffer;
-use hal::device::Device;
-use hal::memory;
-use hal::Backend;
-
 use std::iter;
 use std::marker::PhantomData;
 use std::ptr;
 
-use crate::buffer_object::{FlatObject, FlatObjectContainer};
+use hal::adapter::{Adapter, Gpu, PhysicalDevice};
+use hal::Backend;
+use hal::buffer;
+use hal::device::Device;
+use hal::memory;
 
+use crate::buffer_object::{BlocksSource, FlatBlock};
 
 /// Holds buffer and its memory for storing flat objects.
-pub struct Buffer<B: Backend, O: FlatObject> {
+pub struct Buffer<B: Backend, O: FlatBlock> {
     pub buffer: B::Buffer,
     pub memory: B::Memory,
     pub memory_size: u64,
-
     _len: u32,
     _phantom: PhantomData<O>,
 }
 
-impl<B: Backend, O: FlatObject> Buffer<B, O> {
-
+impl<B: Backend, O: FlatBlock> Buffer<B, O> {
     pub fn new(
         adapter: &Adapter<B>,
         gpu: &Gpu<B>,
         capacity: u64,
         memory_usage: buffer::Usage,
-        memory_type: memory::Properties) -> Self {
+        memory_type: memory::Properties,
+        name: String) -> Self {
 
         // Create buffer.
         let stride_size = O::stride_size() as u64;
         let total_size = capacity * stride_size;
-        let mut buffer = unsafe { gpu.device.create_buffer(total_size, memory_usage).unwrap() };
+        let mut buffer = unsafe {
+            gpu.device.create_buffer(total_size, memory_usage).unwrap()
+        };
 
         // Find memory type id supporting requirements and requested memory type.
         let buffer_requirements = unsafe { gpu.device.get_buffer_requirements(&buffer) };
@@ -57,9 +57,18 @@ impl<B: Backend, O: FlatObject> Buffer<B, O> {
 
         // Allocate memory and bind memory with buffer.
         let memory_size = buffer_requirements.size;
-        let memory = unsafe { gpu.device.allocate_memory(memory_type_id, memory_size) .unwrap() };
+        let memory = unsafe { gpu.device.allocate_memory(memory_type_id, memory_size).unwrap() };
         unsafe {
+            gpu.device.set_buffer_name(&mut buffer, name.as_str());
             gpu.device.bind_buffer_memory(&memory, 0, &mut buffer).unwrap();
+        }
+
+        unsafe {
+            let dst_range = 0..memory_size;
+            let flush_range = iter::once((&memory, 0..memory_size));
+            let dst_ptr = gpu.device.map_memory(&memory, dst_range).unwrap();
+            ptr::write_bytes(dst_ptr, 0, memory_size as usize);
+            gpu.device.flush_mapped_memory_ranges(flush_range).unwrap();
         }
 
         Self {
@@ -72,13 +81,13 @@ impl<B: Backend, O: FlatObject> Buffer<B, O> {
     }
 
     /// Shortcut for making a new vertex buffer.
-    pub fn create_vertex_buffer(adapter: &Adapter<B>, gpu: &Gpu<B>, capacity: u64) -> Self {
-        Self::new(adapter, gpu, capacity, buffer::Usage::VERTEX, memory::Properties::DEVICE_LOCAL)
+    pub fn new_vertex_buffer(adapter: &Adapter<B>, gpu: &Gpu<B>, capacity: u64, name: String) -> Self {
+        Self::new(adapter, gpu, capacity, buffer::Usage::VERTEX, memory::Properties::DEVICE_LOCAL, name)
     }
 
     /// Shortcut for making a new uniform buffer.
-    pub fn create_uniform_buffer(adapter: &Adapter<B>, gpu: &Gpu<B>, capacity: u64) -> Self {
-        Self::new(adapter, gpu, capacity, buffer::Usage::UNIFORM, memory::Properties::DEVICE_LOCAL)
+    pub fn new_uniform(adapter: &Adapter<B>, gpu: &Gpu<B>, capacity: u64, name: String) -> Self {
+        Self::new(adapter, gpu, capacity, buffer::Usage::UNIFORM, memory::Properties::DEVICE_LOCAL, name)
     }
 
     /// Returns number elements currently stored in the buffer.
@@ -86,28 +95,44 @@ impl<B: Backend, O: FlatObject> Buffer<B, O> {
         return self._len;
     }
 
-    /// Writes flat data from source to buffer and flushes it.
-    pub fn write<C>(&mut self, gpu: &Gpu<B>, src: &C)
-    where C: FlatObjectContainer<O>
-    {
-        if src.flat_size() == 0 {
-            return;
+    /// Copies copy_size number of bytes starting from src pointer.
+    pub fn copy_from_ptr(&mut self, gpu: &Gpu<B>, src: *const u8, copy_size: usize) {
+
+        if copy_size == 0 {
+            panic!("nothing to copy");
         }
 
-        // Calculate the size of data to copy.
-        let total_copy_size = src.flat_size() as usize;
-        let total_copy_size_u64 = src.flat_size() as u64;
-        let dst_range = 0..total_copy_size_u64;
-        let src_ptr: *const u8 = src.flat_ptr();
-        let flush_range = iter::once((&self.memory, 0..total_copy_size_u64));
+        let copy_size_u64 = copy_size as u64;
+        let dst_start_u64 = (self._len * O::stride_size()) as u64;
+        let dst_end_u64 = dst_start_u64 + copy_size_u64;
+        let dst_range = dst_start_u64..dst_end_u64;
+        let flush_range = iter::once((&self.memory, dst_start_u64..dst_end_u64));
 
-        // Copy container flat data to buffer and flush.
         unsafe {
             let dst_ptr = gpu.device.map_memory(&self.memory, dst_range).unwrap();
-            ptr::copy_nonoverlapping(src_ptr, dst_ptr, total_copy_size);
+            ptr::copy_nonoverlapping(src, dst_ptr, copy_size);
             gpu.device.flush_mapped_memory_ranges(flush_range).unwrap();
         }
 
-        self._len = src.flat_size() / O::stride_size();
+        self._len += copy_size as u32 / O::stride_size();
+    }
+
+    pub fn copy_from_vec(&mut self, gpu: &Gpu<B>, src: &Vec<O>) {
+        if src.len() == 0 {
+            return;
+        }
+        let ptr = &src[0] as *const _ as *const u8;
+        self.copy_from_ptr(gpu, ptr, src.len());
+    }
+
+    /// Copies data from source to buffer.
+    pub fn copy_from_src<C>(&mut self, gpu: &Gpu<B>, src: &C)
+        where C: BlocksSource<O>
+    {
+        self.copy_from_ptr(gpu, src.ptr(), src.src_size() as usize);
+    }
+
+    pub fn reset(&mut self) {
+        self._len = 0;
     }
 }

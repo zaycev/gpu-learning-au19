@@ -530,6 +530,9 @@ impl<B: Backend> EngineState<B> {
     ) -> Result<(), String> {
         // Get current semaphore index and corresponding semaphores.
         let sem_index = self.advance_semaphore_index();
+
+        println!("{}", sem_index);
+
         let sem_acquire = &self.acquire_semaphores[sem_index];
         let sem_present = &self.present_semaphores[sem_index];
 
@@ -602,6 +605,7 @@ impl<B: Backend> EngineState<B> {
             // Put the submission to the command queue.
             queue.submit(submission, Some(fence));
         }
+
 
         // Return command buffer back.
         command_buffers.push(command_buffer);

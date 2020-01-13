@@ -3,9 +3,17 @@ extern crate gfx_hal as hal;
 extern crate nalgebra as na;
 extern crate nalgebra_glm as glm;
 
-use class3::{DepthImage, FrameImage, Model, Vertex, Triangle, Buffer};
 use core::ops::Range;
+use std::borrow::Borrow;
+use std::f32::consts::PI;
+use std::io;
+use std::iter;
+use std::mem;
+use std::time;
+
 use gfx::memory::cast_slice;
+use glm::Mat4;
+use hal::{Backend, Instance};
 use hal::adapter::{Adapter, Gpu, PhysicalDevice};
 use hal::command;
 use hal::command::CommandBuffer;
@@ -17,30 +25,26 @@ use hal::pass;
 use hal::pool;
 use hal::pool::CommandPool;
 use hal::pso;
+use hal::pso::DescriptorPool;
 use hal::queue;
-use hal::queue::family::{QueueFamily, QueueGroup};
 use hal::queue::CommandQueue;
+use hal::queue::family::{QueueFamily, QueueGroup};
 use hal::window::{Extent2D, Surface, Swapchain, SwapchainConfig};
-use hal::{Backend, Instance};
 use log;
 use shaderc;
 use simple_logger;
-use std::borrow::Borrow;
-use std::f32::consts::PI;
-use std::fs;
-use std::io;
-use std::iter;
-use std::time;
-use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::{Event, EventsLoop, Window, WindowBuilder, WindowEvent};
+use winit::dpi::{LogicalPosition, LogicalSize};
 use zstd;
 
+use class3::{Buffer, DepthImage, FrameImage, LightSource, LightSources, Mesh, Triangle, Vertex, VertexBlock};
+
 fn main() {
-    // Setup logger.
+
+    // Setup a logger.
     simple_logger::init_with_level(log::Level::Info).unwrap();
 
-    let title = "GPU Learning Class: 03 Coordinates".to_string();
-    let name = title.clone();
+    let title = String::from("GPU Learning Class: 03 Coordinates");
     let mut events_loop = EventsLoop::new();
     let mut size = LogicalSize {
         width: 512.0,
@@ -48,16 +52,17 @@ fn main() {
     };
     let window = WindowBuilder::new()
         .with_dimensions(size)
-        .with_resizable(true)
+        .with_resizable(false)
         .build(&events_loop)
         .unwrap();
 
     // Create GPU API instance and a surface where we will draw pixels.
-    let instance = back::Instance::create(name.as_str(), 1).unwrap();
+    let instance = back::Instance::create(title.as_str(), 1).unwrap();
     let surface = unsafe { instance.create_surface(&window).unwrap() };
 
-    // Select adapter (a logical GPU device). Here we just use the first adapter from the list.
-    let adapter = instance.enumerate_adapters().remove(1);
+    // Select adapter (a logical GPU device).
+    // Here we just use the first available adapter from the list.
+    let adapter = instance.enumerate_adapters().remove(0);
 
     // Define a default pixel format. We use standard RGBA – 8 bit RGB + Alpha.
     let default_pixel_format = Some(format::Format::Rgba8Srgb);
@@ -80,7 +85,7 @@ fn main() {
 
     // Open a physical device and its queues (we need just 1 queue for now) for graphics commands.
     // The selector function will check if the queue can support output to our surface.
-    let family = adapter
+    let gpu_queue_family = adapter
         .queue_families
         .iter()
         .find(|family| {
@@ -93,22 +98,64 @@ fn main() {
     let gpu = unsafe {
         adapter
             .physical_device
-            .open(&[(family, &[1.0])], hal::Features::empty())
+            .open(&[(gpu_queue_family, &[1.0])], hal::Features::empty())
             .unwrap()
     };
 
     let model = {
-        let path = "/Users/zaytsev/Desktop/bunny.obj.zstd".to_string();
-        let file = fs::File::open(path).unwrap();
-        let zstd_reader = zstd::stream::Decoder::new(file).unwrap();
+        let zstd_bytes = include_bytes!("../assets/bunny.obj.zst");
+        let zstd_reader = zstd::stream::Decoder::new(&zstd_bytes[..]).unwrap();
         let reader = io::BufReader::new(zstd_reader);
-        Model::load_from_obj(reader, Some(7.0)).unwrap()
+        Mesh::load_from_obj(reader, Some(1.0)).unwrap()
     };
 
-    let mut models = vec![model];
+    let model1 = {
+        let s = 3.0;
+        let mut m = model.clone();
+        let scale = na::Vector3::new(s, s, s);
+        let translation = na::Vector3::new(0.0, 0.2, 0.0);
+        m.transform = glm::scale(&m.transform, &scale);
+        m.transform = glm::translate(&m.transform, &translation);
+        m
+    };
+
+    let model2 = {
+        let s = 3.0;
+        let mut m = model.clone();
+        let scale = na::Vector3::new(s, s, s);
+        let translation = na::Vector3::new(-0.2, 0.0, 0.0);
+        m.transform = glm::scale(&m.transform, &scale);
+        m.transform = glm::translate(&m.transform, &translation);
+        m
+    };
+
+    let model3 = {
+        let s = 3.0;
+        let mut m = model.clone();
+        let scale = na::Vector3::new(s, s, s);
+        let translation = na::Vector3::new(0.2, 0.0, 0.0);
+        m.transform = glm::scale(&m.transform, &scale);
+        m.transform = glm::translate(&m.transform, &translation);
+        m
+    };
+
+    let mut models = vec![
+        model1,
+        model2,
+        model3,
+    ];
+
+    let rotation_vector = &glm::make_vec3(&[0.0, 1.0, 0.0]);
 
     // Create our engine for drawing state.
-    let mut engine = GraphicsEngine::init(gpu, surface, adapter, size, pixel_format, window, title);
+    let mut engine = GraphicsEngine::init(
+        gpu,
+        surface,
+        adapter,
+        size,
+        pixel_format,
+        window,
+        title);
 
     // Main loop:
     //
@@ -117,51 +164,60 @@ fn main() {
     //  3. Draw state.
     //
     let mut cursor_pose = LogicalPosition::new(0.0, 0.0);
-    let mut end_requested = false;
-    let mut resize_requested = false;
+    let mut is_end_requested = false;
+    let mut is_resize_requested = false;
 
     loop {
+
         // If end requested, exit the loop.
-        if end_requested {
+        if is_end_requested {
             break;
         }
 
         // Get window event.
         events_loop.poll_events(|e| match e {
+
             // Catch cursor event.
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
                 ..
             } => cursor_pose = position,
+
             // Catch close event.
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } => end_requested = true,
+            } => is_end_requested = true,
+
             // Window resize.
             Event::WindowEvent {
                 event: WindowEvent::Resized(new_size),
                 ..
             } => {
-                resize_requested = true;
+                is_resize_requested = true;
                 size = new_size;
             }
-            // Default.
+
+            // Ignore the rest.
             _ => (),
         });
 
-        if resize_requested {
+        if is_resize_requested {
             engine.update_window_size(size);
-            resize_requested = false;
+            is_resize_requested = false;
         }
 
-        let rot = &glm::make_vec3(&[0.0, 1.0, 0.0]).normalize();
-        for m in &mut models {
-            m.m = glm::rotate(&m.m, PI * 0.007, &rot);
+        for (i, m) in &mut models.iter_mut().enumerate() {
+            let speed = ((i as f32 + 1.0) / 5.0 + 1.0) * PI * 0.007;
+            m.transform = glm::rotate(&m.transform, speed, &rotation_vector);
         }
+
+        let x = (cursor_pose.x / size.width) as f32;
+        let y = (cursor_pose.y / size.height) as f32;
+        let z = ((cursor_pose.y + cursor_pose.x) / (size.height + size.width)) as f32;
 
         // Draw state.
-        engine.draw(&models);
+        engine.draw(&models, [x, y, z]);
     }
 }
 
@@ -247,7 +303,7 @@ impl<B: Backend> GraphicsEngine<B> {
     }
 
     /// Draw state draws the state and re-creates the swap-chain when it gets outdated.
-    pub fn draw(&mut self, models: &Vec<Model>) {
+    pub fn draw(&mut self, models: &Vec<Mesh>, pose: [f32; 3]) {
         //
         self.frame_i += 1;
         let begin_time = time::SystemTime::now();
@@ -258,6 +314,7 @@ impl<B: Backend> GraphicsEngine<B> {
             &mut self.queue_group.queues[0],
             self.clear_color,
             models,
+            pose,
         );
 
         // If draw returned error, try to recreate swap-chain and render state.
@@ -273,6 +330,7 @@ impl<B: Backend> GraphicsEngine<B> {
 
         // Every 64 frame, calculate average FPS and display it the window title.
         if self.frame_i % 64 == 1 {
+            log::info!("light pose = {:?}", pose);
             let time_per_frame = (self.total_time as f64) / (self.total_frames as f64);
             let frames_per_second = 1_000_000.0 / time_per_frame;
             self.title = format!(
@@ -308,9 +366,6 @@ impl<B: Backend> GraphicsEngine<B> {
                 self.gpu
                     .device
                     .destroy_pipeline_layout(state.pipeline_layout);
-                for layout in state.descriptor_set_layouts.drain(..) {
-                    self.gpu.device.destroy_descriptor_set_layout(layout);
-                }
                 self.gpu.device.destroy_render_pass(state.render_pass);
                 self.gpu.device.destroy_swapchain(state.swapchain);
                 for fence in state.fences.drain(..) {
@@ -382,10 +437,13 @@ struct EngineState<B: Backend> {
     // Graphic pipeline state objects and vertex buffer.
     pipeline: B::GraphicsPipeline,
     pipeline_layout: B::PipelineLayout,
-    descriptor_set_layouts: Vec<B::DescriptorSetLayout>,
+    _pipeline_descriptor_pool: B::DescriptorPool,
+    pipeline_descriptor_set: B::DescriptorSet,
 
-    // Vertex buffer.
+    // Buffers
     vertex_buffer: Buffer<B, Triangle>,
+    transform_buffer: Buffer<B, Mesh>,
+    lights_buffer: Buffer<B, LightSource>,
 
     // Index of the currently displayed image in the swap-chain.
     // Needed to acquire buffers, semaphores and fences corresponding to the current image
@@ -394,8 +452,9 @@ struct EngineState<B: Backend> {
     frame_counter: u32,
     loaded: bool,
 
-    // View-projection marrix.
-    vp: glm::Mat4,
+    // View-projection matrix.
+    v: glm::Mat4,
+    p: glm::Mat4,
 }
 
 /// Engine implementation.
@@ -409,23 +468,20 @@ impl<B: Backend> EngineState<B> {
         window_size: LogicalSize,
         pixel_format: format::Format,
     ) -> Self {
-        let vp = {
-            let view = glm::look_at_lh(
-                &glm::make_vec3(&[0.0, 1.0, -2.0]),            // eye
-                &glm::make_vec3(&[0.0, 0.7, 0.0]),             // target
-                &glm::make_vec3(&[0.0, 1.0, 0.0]).normalize(), // "up"
-            );
-
+        let v = glm::look_at_lh(
+            &glm::make_vec3(&[0.0, 1.0, -2.0]), // eye
+            &glm::make_vec3(&[0.0, 0.7, 0.0]),  // target
+            &glm::make_vec3(&[0.0, 1.0, 0.0]),  // "up"
+        );
+        let p = {
             let mut projection = glm::perspective_lh_zo(
                 window_size.width as f32 / window_size.height as f32,
                 f32::to_radians(50.0),
                 0.01,
                 1000.0,
             );
-
             projection[(1, 1)] *= -1.0;
-
-            projection * view
+            projection
         };
 
         // 1. Create a swap-chain with back-buffer for surface and GPU. Back-buffer will contain the
@@ -471,7 +527,7 @@ impl<B: Backend> EngineState<B> {
             layouts: initial_layout..final_color_layout,
         };
 
-        // This is simiar to color attachment, except that the format isn't going to be surface
+        // This is similar to color attachment, except that the format isn't going to be surface
         // pixel format.
         let depth_attachment = pass::Attachment {
             format: Some(format::Format::D32Sfloat),
@@ -726,8 +782,8 @@ impl<B: Backend> EngineState<B> {
                 mask: pso::ColorMask::ALL,
                 // This essentially describes the following blending
                 // operation:
-                //  final.rgb = new.rgb*new.alpha + old.rgb * (1-new.alpha)
-                //  final.a = 1.0 * new.a + 0.0 * old.a
+                //  final.rgb = new.rgb * new.alpha + old.rgb * (1.0 - new.alpha)
+                //  final.alpha = 1.0 * new.alpha + 0.0 * old.alpha
                 // As you see in the code below, we setting old factor to 0
                 // to completely ignore the old rgb and old alpha value
                 // saved in the frame buffer.
@@ -744,34 +800,74 @@ impl<B: Backend> EngineState<B> {
             }],
         };
 
-        //
-        let bindings: Vec<pso::DescriptorSetLayoutBinding> =
-            vec![pso::DescriptorSetLayoutBinding {
-                binding: 0,
-                ty: pso::DescriptorType::UniformBuffer,
-                count: 1,
-                stage_flags: pso::ShaderStageFlags::GRAPHICS,
-                immutable_samplers: false,
-            }];
-
-        let samplers: Vec<B::Sampler> = vec![];
-        let layout = unsafe {
-            gpu.device
-                .create_descriptor_set_layout(bindings, samplers)
-                .unwrap()
-        };
-        let layouts = vec![layout];
-
+        // Create a vertex buffer. Here we are going to allocate buffer for just a
+        // single triangle.
+        let vertex_buffer = Buffer::new_vertex_buffer(&adapter, &gpu, 100_000, String::from("vertex_buffer"));
+        let transform_buffer = Buffer::new_uniform(&adapter, &gpu, 10, String::from("transform_buffer"));
+        let lights_buffer = Buffer::new_uniform(&adapter, &gpu, 10, String::from("lights_buffer"));
+        let constants_range = 2 * mem::size_of::<glm::Mat4>() as u32;
         let constants: Vec<(pso::ShaderStageFlags, Range<u32>)> = vec![
-            (pso::ShaderStageFlags::FRAGMENT, 0..4),
-            (pso::ShaderStageFlags::VERTEX, 0..(16 * 4)),
+            (pso::ShaderStageFlags::GRAPHICS, 0..constants_range),
         ];
 
+        let descriptor_bindings = vec![pso::DescriptorSetLayoutBinding {
+            binding: 0,
+            ty: pso::DescriptorType::UniformBuffer,
+            count: 1,
+            stage_flags: pso::ShaderStageFlags::GRAPHICS,
+            immutable_samplers: false,
+        }, pso::DescriptorSetLayoutBinding {
+            binding: 1,
+            ty: pso::DescriptorType::UniformBufferDynamic,
+            count: 1,
+            stage_flags: pso::ShaderStageFlags::GRAPHICS,
+            immutable_samplers: false,
+        }];
+
+        let descriptor_set_layout = unsafe {
+            gpu.device.create_descriptor_set_layout(&descriptor_bindings, &[]).unwrap()
+        };
+        let descriptor_set_layouts = vec![&descriptor_set_layout];
         let pipeline_layout = unsafe {
             gpu.device
-                .create_pipeline_layout(&layouts, constants)
+                .create_pipeline_layout(descriptor_set_layouts, constants)
                 .unwrap()
         };
+
+        let pipeline_descriptor_range = pso::DescriptorRangeDesc {
+            ty: pso::DescriptorType::UniformBufferDynamic,
+            count: 2,
+        };
+        let pipeline_descriptor_pool_max_sets = 1;
+        let pipeline_descriptor_pool_flsgs = pso::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET;
+        let mut pipeline_descriptor_pool = unsafe {
+            gpu.device.create_descriptor_pool(
+                pipeline_descriptor_pool_max_sets,
+                &[pipeline_descriptor_range],
+                pipeline_descriptor_pool_flsgs).unwrap()
+        };
+        let pipeline_descriptor_set = unsafe {
+            pipeline_descriptor_pool.allocate_set(&descriptor_set_layout).unwrap()
+        };
+
+        unsafe {
+            let desc1 = pso::Descriptor::Buffer(&lights_buffer.buffer, None..None);
+            let desc2 = pso::Descriptor::Buffer(&transform_buffer.buffer, None..None);
+            let write1 = vec![pso::DescriptorSetWrite {
+                set: &pipeline_descriptor_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(desc1),
+            }];
+            let write2 = vec![pso::DescriptorSetWrite {
+                set: &pipeline_descriptor_set,
+                binding: 1,
+                array_offset: 0,
+                descriptors: Some(desc2),
+            }];
+            gpu.device.write_descriptor_sets(write1);
+            gpu.device.write_descriptor_sets(write2);
+        }
 
         // Create graphics pipeline.
         let pipeline_primitive = pso::Primitive::TriangleList;
@@ -800,10 +896,6 @@ impl<B: Backend> EngineState<B> {
                 .unwrap()
         };
 
-        // Create a vertex buffer. Here we are going to allocate buffer for just a
-        // single triangle
-        let vertex_buffer = Buffer::create_vertex_buffer(&adapter, &gpu, 70_000);
-
         EngineState {
             size,
             swapchain,
@@ -818,12 +910,16 @@ impl<B: Backend> EngineState<B> {
             present_semaphores,
             pipeline,
             pipeline_layout,
-            descriptor_set_layouts: layouts,
+            _pipeline_descriptor_pool: pipeline_descriptor_pool,
+            pipeline_descriptor_set,
             sem_index,
             vertex_buffer,
+            transform_buffer,
+            lights_buffer,
             frame_counter: 0,
             loaded: false,
-            vp,
+            v,
+            p,
         }
     }
 
@@ -844,19 +940,19 @@ impl<B: Backend> EngineState<B> {
         gpu: &mut Gpu<B>,
         queue: &mut B::CommandQueue,
         color: [f32; 4],
-        models: &Vec<Model>,
+        models: &Vec<Mesh>,
+        pose: [f32; 3],
     ) -> Result<(), String> {
         self.frame_counter += 1;
 
         // Write triangle data to vertex buffer.
         if !self.loaded {
             self.loaded = true;
+            self.vertex_buffer.reset();
             for model in models {
-                self.vertex_buffer.write(gpu, model);
+                self.vertex_buffer.copy_from_src(gpu, model);
             }
         }
-
-        let total_vertices = self.vertex_buffer.len() * 3;
 
         // Get current semaphore index and corresponding semaphores.
         let sem_index = self.advance_semaphore_index();
@@ -900,22 +996,55 @@ impl<B: Backend> EngineState<B> {
         };
 
         // Get command buffer from the current frame pool.
-        let mut command_buffer = unsafe {
-            match command_buffers.pop() {
-                Some(buffer) => buffer,
-                None => command_pool.allocate_one(command::Level::Primary),
-            }
+        unsafe { command_pool.reset(false) };
+
+        // Write light uniforms.
+        let lights = LightSources{ sources: [
+            LightSource::white([pose[0], pose[1], 0.0, 0.0]),
+            LightSource::white([pose[1], pose[0], 0.0, 0.0]),
+            LightSource::white([pose[1], pose[0], 1.0, 0.0]),
+            LightSource::white([pose[1], pose[0], -1.0, 0.0]),
+            LightSource::white([pose[1], pose[0], 2.0, 0.0]),
+            LightSource::white([pose[0], pose[1], 2.0, 0.0]),
+            LightSource::empty(),
+            LightSource::empty(),
+            LightSource::empty(),
+            LightSource::empty(),
+        ]};
+
+        self.lights_buffer.reset();
+        self.lights_buffer.copy_from_src(gpu, &lights);
+
+        // Write transform uniforms for each model.
+        self.transform_buffer.reset();
+        for model in models {
+            let transform_ptr = model.transform.as_slice().as_ptr() as *const u8;
+            let transform_size = mem::size_of::<glm::Mat4>();
+            self.transform_buffer.copy_from_ptr(gpu, transform_ptr, transform_size);
+        }
+
+        // Create command buffer to draw each model.
+        let mut recorded_buffers: Vec<B::CommandBuffer> = Vec::with_capacity(models.len());
+
+        // Allocate buffer.
+        let mut command_buffer = match command_buffers.pop() {
+            Some(b) => b,
+            None => unsafe {
+                command_pool.allocate_one(command::Level::Primary)
+            },
         };
 
-        let vertex_buffer_iter = iter::once((&self.vertex_buffer.buffer, 0));
         unsafe {
-            // Start buffer.
-            let flags = command::CommandBufferFlags::ONE_TIME_SUBMIT;
-            command_buffer.begin_primary(flags);
+
+            let vertex_buffer_iter = iter::once((&self.vertex_buffer.buffer, 0));
+
+            command_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
             command_buffer.set_viewports(0, &[frame_viewport.clone()]);
             command_buffer.set_scissors(0, &[frame_viewport.rect.clone()]);
             command_buffer.bind_graphics_pipeline(&self.pipeline);
             command_buffer.bind_vertex_buffers(0, vertex_buffer_iter);
+
+
             command_buffer.begin_render_pass(
                 &self.render_pass,
                 frame_buffer,
@@ -933,30 +1062,43 @@ impl<B: Backend> EngineState<B> {
                 ],
                 command::SubpassContents::Inline,
             );
-            command_buffer.push_graphics_constants(
-                &self.pipeline_layout,
-                pso::ShaderStageFlags::FRAGMENT,
-                0,
-                &[self.frame_counter],
-            );
 
-            let mvp = self.vp * &models[0].m;
 
             command_buffer.push_graphics_constants(
                 &self.pipeline_layout,
-                pso::ShaderStageFlags::VERTEX,
+                pso::ShaderStageFlags::GRAPHICS,
                 0,
-                cast_slice::<f32, u32>(mvp.as_slice()),
+                cast_slice::<f32, u32>(self.p.as_slice()),
             );
-            command_buffer.draw(0..total_vertices, 0..1);
+
+            command_buffer.push_graphics_constants(
+                &self.pipeline_layout,
+                pso::ShaderStageFlags::GRAPHICS,
+                mem::size_of::<Mat4>() as u32,
+                cast_slice::<f32, u32>(self.v.as_slice()),
+            );
+
+            command_buffer.bind_graphics_descriptor_sets(&self.pipeline_layout,
+                0,
+                vec![&self.pipeline_descriptor_set],
+                &[],
+            );
+
+            let total_vertices = 3 * models[0].triangles.len() as u32 * 3;
+            command_buffer.draw(0..total_vertices, 0..3);
+
 
             command_buffer.end_render_pass();
             command_buffer.finish();
+
         }
+
+        recorded_buffers.push(command_buffer);
+
 
         // Create queue submission for the swapchain.
         let submission = queue::Submission {
-            command_buffers: iter::once(&command_buffer),
+            command_buffers: recorded_buffers.iter(),
             wait_semaphores: iter::once((&*sem_acquire, pso::PipelineStage::BOTTOM_OF_PIPE)),
             signal_semaphores: iter::once(&*sem_present),
         };
@@ -967,7 +1109,9 @@ impl<B: Backend> EngineState<B> {
         }
 
         // Return command buffer back.
-        command_buffers.push(command_buffer);
+        for buffer in recorded_buffers.drain(..) {
+            command_buffers.push(buffer);
+        }
 
         // Present queue to swapchain.
         let result = unsafe { self.swapchain.present(queue, frame_id, Some(&*sem_present)) };

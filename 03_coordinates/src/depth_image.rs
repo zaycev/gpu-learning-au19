@@ -1,13 +1,13 @@
 extern crate gfx_backend_metal as back;
 extern crate gfx_hal as hal;
 
+use hal::{Backend, MemoryTypeId};
 use hal::adapter::{Adapter, Gpu, PhysicalDevice};
 use hal::device::Device;
 use hal::format;
 use hal::image;
 use hal::memory::Properties;
 use hal::window::Extent2D;
-use hal::{Backend, MemoryTypeId};
 
 /// DepthImage bundles image, its view and allocated memory.
 pub struct DepthImage<B: Backend> {

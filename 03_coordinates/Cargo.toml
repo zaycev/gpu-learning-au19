@@ -22,7 +22,7 @@ default = ["metal"]
 metal = ["gfx-backend-metal"]
 
 [target.'cfg(any(target_os = "macos", all(target_os = "ios", target_arch = "aarch64")))'.dependencies.gfx-backend-metal]
-version = "0.4.0"
+version = "0.4.2"
 optional = true
 
 [profile.release]

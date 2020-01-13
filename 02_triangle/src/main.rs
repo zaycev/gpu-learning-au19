@@ -34,8 +34,6 @@ use core::ops::Range;
 use log;
 use simple_logger;
 
-use class2::ComputeExample;
-
 fn main() {
 
     // Setup logger.
@@ -416,17 +414,12 @@ struct EngineState<B: Backend> {
     pub command_buffer_pools_lists: Vec<Vec<B::CommandBuffer>>,
 
     // Graphic pipeline state objects and vertex buffer.
-    //
-    //
     pub pipeline: B::GraphicsPipeline,
     pub pipeline_layout: B::PipelineLayout,
     pub descriptor_set_layouts: Vec<B::DescriptorSetLayout>,
     pub vertex_memory: B::Memory,
     pub vertex_buffer: B::Buffer,
     pub vertex_memory_size: u64,
-
-    // Compute pipeline
-    pub compute: ComputeExample<B>,
 
     // Index of the currently displayed image in the swap-chain.
     // Needed to acquire buffers, semaphores and fences corresponding to the current image
@@ -822,8 +815,6 @@ impl<B: Backend> EngineState<B> {
                 .unwrap();
         };
 
-        let compute = ComputeExample::new(&gpu, &adapter, &queues);
-
         EngineState {
             size,
             swapchain,
@@ -843,7 +834,6 @@ impl<B: Backend> EngineState<B> {
             vertex_memory,
             vertex_memory_size,
             frame_counter: 0,
-            compute,
         }
     }
 
@@ -875,16 +865,7 @@ impl<B: Backend> EngineState<B> {
                 .map_memory(&self.vertex_memory, 0..self.vertex_memory_size)
                 .unwrap();
 
-            let mut points = triangle.points.clone();
-
-
-            let computed = self.compute.compute(gpu, [points[0], points[1]]);
-            points[2] = computed[0];
-            points[3] = computed[1];
-            points[4] = computed[2];
-            points[5] = computed[3];
-
-            let triangle_flat = points.as_ptr() as *const u8;
+            let triangle_flat = triangle.points.as_ptr() as *const u8;
             let triangle_size = mem::size_of::<f32>() * 6;
             ptr::copy_nonoverlapping(triangle_flat, mapping, triangle_size);
             let memory_range = iter::once((&self.vertex_memory, 0..self.vertex_memory_size));

@@ -2,10 +2,10 @@ extern crate gfx_backend_metal as back;
 extern crate gfx_hal as hal;
 
 use hal::adapter::Gpu;
+use hal::Backend;
 use hal::device::Device;
 use hal::format;
 use hal::image;
-use hal::Backend;
 
 /// FrameImage bundles color image with its view.
 pub struct FrameImage<B: Backend> {
