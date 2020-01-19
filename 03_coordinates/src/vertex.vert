@@ -1,5 +1,6 @@
 #version 450
 #define MAX_MODELS 10
+#define MAX_LIGHTS 10
 
 layout (push_constant) uniform PushConsts {
     mat4 p;
@@ -31,6 +32,6 @@ void main()
     // Write outputs.
     out_norm    = in_norm;
     out_pose    = in_pose.xyz;
-    out_color   = vec3(0.7, 0.7, 0.7);
+    out_color   = vec3(1.0, 1.0, 1.0);
     out_idx     = gl_InstanceIndex;
 }
