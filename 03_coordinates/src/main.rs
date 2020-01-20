@@ -1,11 +1,9 @@
 extern crate gfx_backend_metal as back;
 extern crate gfx_hal as hal;
-extern crate nalgebra as na;
 extern crate nalgebra_glm as glm;
 
 use core::ops::Range;
 use std::borrow::Borrow;
-use std::f32::consts::PI;
 use std::io;
 use std::iter;
 use std::mem;
@@ -110,54 +108,113 @@ fn main() {
             .unwrap()
     };
 
-    // Load mesh.
-    let model = {
+    // Load meshes and construct.
+
+    let mesh_bunny = {
         let zstd_bytes = include_bytes!("../assets/bunny.obj.zst");
         let zstd_reader = zstd::stream::Decoder::new(&zstd_bytes[..]).unwrap();
         let reader = io::BufReader::new(zstd_reader);
         Mesh::from_obj(reader).unwrap()
     };
 
-    let mesh1 = {
-        let s = 3.3;
-        let mut m = model.clone();
-        let scale = na::Vector3::new(s, s, s);
-        let translation = na::Vector3::new(0.0, 0.2, 0.0);
+    let mesh_sphere = {
+        let zstd_bytes = include_bytes!("../assets/sphere.obj.zst");
+        let zstd_reader = zstd::stream::Decoder::new(&zstd_bytes[..]).unwrap();
+        let reader = io::BufReader::new(zstd_reader);
+        Mesh::from_obj(reader).unwrap()
+    };
+
+    let mesh_plane = Mesh{
+        triangles: vec![
+            Triangle{vertices: [
+                Vertex{xyz: [ 1.0, 0.0, -1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [ 1.0, 0.0,  1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [-1.0, 0.0,  1.0], vn: [0.0, 1.0, 0.0]},
+            ]},
+            Triangle{vertices: [
+                Vertex{xyz: [-1.0, 0.0, -1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [ 1.0, 0.0, -1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [-1.0, 0.0,  1.0], vn: [0.0, 1.0, 0.0]},
+            ]},
+        ],
+        transform: glm::Mat4::identity(),
+    };
+
+    let bunny_1 = {
+        let s = 3.2;
+        let mut m = mesh_bunny.clone();
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.0, 0.0, 0.45]);
         m.transform = glm::scale(&m.transform, &scale);
         m.transform = glm::translate(&m.transform, &translation);
         m
     };
 
-    let mesh2 = {
-        let s = 2.6;
-        let mut m = model.clone();
-        let scale = na::Vector3::new(s, s, s);
-        let translation = na::Vector3::new(-0.15, 0.0, 0.0);
+    let bunny_2 = {
+        let s = 1.0;
+        let mut m = mesh_bunny.clone();
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[-0.3, -0.15, 1.2]);
         m.transform = glm::scale(&m.transform, &scale);
         m.transform = glm::translate(&m.transform, &translation);
         m
     };
 
-    let mesh3 = {
-        let s = 2.6;
-        let mut m = model.clone();
-        let scale = na::Vector3::new(s, s, s);
-        let translation = na::Vector3::new(0.15, 0.0, 0.0);
+    let bunny_3 = {
+        let s = 1.0;
+        let mut m = mesh_bunny.clone();
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.3, -0.15, 1.2]);
         m.transform = glm::scale(&m.transform, &scale);
         m.transform = glm::translate(&m.transform, &translation);
+        m
+    };
+
+    let terrain = {
+        let s = 5.0;
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.0, -0.3, 1.0]);
+        let mut m = mesh_plane.clone();
+        m.transform = glm::translate(&m.transform, &translation);
+        m.transform = glm::scale(&m.transform, &scale);
+        m
+    };
+
+    let light_source_1 = {
+        let s = 0.03;
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.0, 0.0, 1.0]);
+        let mut m = mesh_sphere.clone();
+        m.transform = glm::translate(&m.transform, &translation);
+        m.transform = glm::scale(&m.transform, &scale);
+        m
+    };
+
+    let light_source_2 = {
+        let mut m = light_source_1.clone();
+        *m.transform.index_mut((0, 3)) = 0.32;
+        *m.transform.index_mut((1, 3)) = -0.28;
+        *m.transform.index_mut((2, 3)) = 1.0;
         m
     };
 
     let mut meshes = vec![
-        mesh1,
-        mesh2,
-        mesh3,
+        terrain,
+        light_source_1,
+        light_source_2,
+        bunny_1,
+        bunny_2,
+        bunny_3,
     ];
 
     let mut lights = vec![
         LightSource{
-            xyz: [0.0, 0.0, -1.0, 0.0],
+            xyz: [0.0, 0.5, -0.6, 0.0],
             color: [1.0, 1.0, 1.0, 1.0],
+        },
+        LightSource{
+            xyz: [0.32, -0.28, 1.0, 0.0],
+            color: [0.6, 0.6, 1.0, 1.0],
         },
     ];
 
@@ -165,18 +222,19 @@ fn main() {
     let rot = &glm::make_vec3(&[0.0, 1.0, 0.0]);
 
     // Camera view and projection matrices.
-    let v = glm::look_at_lh(
-        &glm::make_vec3(&[0.0, 1.0, -2.0]), // eye
-        &glm::make_vec3(&[0.0, 0.7, 0.0]),  // target
-        &glm::make_vec3(&[0.0, 1.0, 0.0]),  // "up"
-    );
+    let vec_eye = glm::make_vec3(&[0.0, 0.0, 0.0]);
+    let vec_target = glm::make_vec3(&[0.0, 0.0, 10.0]);
+    let vec_up = glm::make_vec3(&[0.0, 1.0, 0.0]);
+    let v = glm::look_at_lh(&vec_eye, &vec_target, &vec_up);
 
+    let p_near = 0.1;
+    let p_far  = 1000.0;
     let p = {
         let mut projection = glm::perspective_lh_zo(
             size.width as f32 / size.height as f32,
             f32::to_radians(50.0),
-            0.01,
-            1000.0,
+            p_near,
+            p_far,
         );
         projection[(1, 1)] *= -1.0;
         projection
@@ -243,16 +301,43 @@ fn main() {
         }
 
         for (i, m) in &mut meshes.iter_mut().enumerate() {
-            if i > 2 {
-                break;
+            // Skip light and terrain meshes.
+            if i == 0 || i == 1 || i == 2 {
+                continue;
             }
-            let speed = ((i as f32 + 1.0) / 4.0 + -1.0) * PI * 0.007;
+            let speed =  (1.3 * i as f32 - 1.7) / 40.0;
             m.transform = glm::rotate(&m.transform, speed, &rot);
         }
 
-//        let x = (cursor_pose.x / size.width) as f32;
-//        let y = (cursor_pose.y / size.height) as f32;
-//        let z = ((cursor_pose.y + cursor_pose.x) / (size.height + size.width)) as f32;
+        //
+        // Project curso coordinates from screen space to world space.
+        //
+
+        let screen_x = (cursor_pose.x / size.width)  as f32 * 2.0 - 1.0;
+        let screen_y = (cursor_pose.y / size.height) as f32 * 2.0 - 1.0;
+        let screen_z = 3.0;
+
+        let vec_xyzw = glm::make_vec4(&[screen_x, screen_y, screen_z, 0.0]);
+        let mat_pv = p.clone() * v.clone();
+        let mat_pv_inv = glm::inverse(&mat_pv);
+
+        let vec_mouse_world_xyzw = mat_pv_inv * vec_xyzw;
+        let vec_mouse_world_xyz = glm::make_vec3(&[
+             vec_mouse_world_xyzw[0],
+             vec_mouse_world_xyzw[1],
+             vec_mouse_world_xyzw[2] + 1.0,
+        ]);
+
+        *meshes[1].transform.index_mut((0, 3)) =  vec_mouse_world_xyz[0];
+        *meshes[1].transform.index_mut((1, 3)) =  vec_mouse_world_xyz[1];
+        *meshes[1].transform.index_mut((2, 3)) =  vec_mouse_world_xyz[2];
+
+        lights[0].xyz = [
+            vec_mouse_world_xyz[0],
+            vec_mouse_world_xyz[1],
+            vec_mouse_world_xyz[2],
+            0.0,
+        ];
 
         // Draw meshes.
         engine.draw(&v, &p, &meshes, &lights);
@@ -488,7 +573,7 @@ struct EngineState<B: Backend> {
     pipeline_descriptor_set: B::DescriptorSet,
 
     // Pipeline resources.
-    vertex_buffer: Buffer<B, Triangle>,
+    vertex_buffer: Buffer<B, Vertex>,
     transform_buffer: Buffer<B, glm::Mat4>,
     lights_buffer: Buffer<B, LightSource>,
 
@@ -509,7 +594,6 @@ impl<B: Backend> EngineState<B> {
         adapter: &Adapter<B>,
         window_size: LogicalSize,
         pixel_format: format::Format,
-
     ) -> Self {
 
         // 1. Create a swap-chain with back-buffer for surface and GPU. Back-buffer will contain the
@@ -721,11 +805,11 @@ impl<B: Backend> EngineState<B> {
         // Here we simply inline shader code using macro functions.
         // Both shaders will use their main functions as an entry point.
         let shader_entry = "main";
-        let shader_vert_file = "vertex.vert";
-        let shader_frag_file = "vertex.frag";
+        let shader_vert_file = "shader.vert";
+        let shader_frag_file = "shader.frag";
         let shader_vert_artifact = compiler
             .compile_into_spirv(
-                include_str!("vertex.vert"),
+                include_str!("shader.vert"),
                 shaderc::ShaderKind::Vertex,
                 shader_vert_file,
                 shader_entry,
@@ -734,7 +818,7 @@ impl<B: Backend> EngineState<B> {
             .unwrap();
         let shader_frag_artifact = compiler
             .compile_into_spirv(
-                include_str!("vertex.frag"),
+                include_str!("shader.frag"),
                 shaderc::ShaderKind::Fragment,
                 shader_frag_file,
                 shader_entry,
@@ -830,9 +914,12 @@ impl<B: Backend> EngineState<B> {
 
         // Create a vertex buffer. Here we are going to allocate buffer for just a
         // single triangle.
-        let mut vertex_buffer: Buffer<B, Triangle> = Buffer::new_vertex_buffer(&adapter, &gpu, 1_000_000);
-        let mut transform_buffer: Buffer<B, glm::Mat4> = Buffer::new_uniform_buffer(&adapter, &gpu, 10);
-        let mut lights_buffer: Buffer<B, LightSource> = Buffer::new_uniform_buffer(&adapter, &gpu, 10);
+        let mut vertex_buffer: Buffer<B, Vertex> = Buffer::new_vertex_buffer(
+            &adapter, &gpu, 1_000_000);
+        let mut transform_buffer: Buffer<B, glm::Mat4> = Buffer::new_uniform_buffer(
+            &adapter, &gpu, 10);
+        let mut lights_buffer: Buffer<B, LightSource> = Buffer::new_uniform_buffer(
+            &adapter, &gpu, 10);
 
         // Set buffer names.
         vertex_buffer.set_name(&gpu, "vertex_buffer");
@@ -1031,9 +1118,9 @@ impl<B: Backend> EngineState<B> {
             let transform_ptr = mesh.transform.as_ptr() as *const u8;
             self.transform_buffer.copy(gpu, transform_ptr, transform_num);
             // Write mesh.
-            let mesh_num = mesh.triangles.len() * 3;
-            let mesh_prt = mesh.triangles.as_ptr() as *const u8;
-            self.vertex_buffer.copy(gpu, mesh_prt, mesh_num);
+            let vertex_num = mesh.triangles.len() * 3;
+            let vertex_prt = mesh.triangles.as_ptr() as *const u8;
+            self.vertex_buffer.copy(gpu, vertex_prt, vertex_num);
         }
 
         // Write lights.
@@ -1104,15 +1191,18 @@ impl<B: Backend> EngineState<B> {
                 &[],
             );
 
-            let offset: u32 = 0;
+            let mut offset: u32 = 0;
             for (i, mesh) in meshes.iter().enumerate() {
                 let mesh_vertices_num = mesh.triangles.len() as u32 * 3;
                 let mesh_vertices_range = offset..offset+mesh_vertices_num;
                 let mesh_instance_range = i as u32 .. (i + 1) as u32;
+
                 command_buffer.draw(
                     mesh_vertices_range,
                     mesh_instance_range,
                 );
+
+                offset += mesh_vertices_num;
             }
 
             command_buffer.end_render_pass();
