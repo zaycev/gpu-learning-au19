@@ -53,8 +53,8 @@ fn main() {
     let title = String::from("GPU Learning Class: 03 Coordinates");
     let mut events_loop = EventsLoop::new();
     let mut size = LogicalSize {
-        width: 640.0,
-        height: 640.0,
+        width: 960.0,
+        height: 540.0,
     };
     let window = WindowBuilder::new()
         .with_dimensions(size)
@@ -68,7 +68,7 @@ fn main() {
 
     // Select adapter (a logical GPU device).
     // Here we just use the first available adapter from the list.
-    let adapter = instance.enumerate_adapters().remove(1);
+    let adapter = instance.enumerate_adapters().remove(0);
 
     // Define a default pixel format. We use standard RGBA – 8 bit RGB + Alpha.
     let default_pixel_format = Some(format::Format::Rgba8Srgb);
@@ -210,11 +210,11 @@ fn main() {
     let mut lights = vec![
         LightSource{
             xyz: [0.0, 0.5, -0.6, 0.0],
-            color: [1.0, 1.0, 1.0, 1.0],
+            color: [1.0, 0.95, 0.95, 1.0],
         },
         LightSource{
             xyz: [0.32, -0.28, 1.0, 0.0],
-            color: [0.6, 0.6, 1.0, 1.0],
+            color: [0.55, 0.55, 1.0, 1.0],
         },
     ];
 
@@ -239,6 +239,9 @@ fn main() {
         projection[(1, 1)] *= -1.0;
         projection
     };
+
+    let mat_pv = p.clone() * v.clone();
+    let mat_pv_inv = glm::inverse(&mat_pv);
 
     // Create our engine for drawing state.
     let mut engine = GraphicsEngine::init(
@@ -318,9 +321,6 @@ fn main() {
         let screen_z = 3.0;
 
         let vec_xyzw = glm::make_vec4(&[screen_x, screen_y, screen_z, 0.0]);
-        let mat_pv = p.clone() * v.clone();
-        let mat_pv_inv = glm::inverse(&mat_pv);
-
         let vec_mouse_world_xyzw = mat_pv_inv * vec_xyzw;
         let vec_mouse_world_xyz = glm::make_vec3(&[
              vec_mouse_world_xyzw[0],
@@ -582,6 +582,8 @@ struct EngineState<B: Backend> {
     // in the back buffer of the swap-chain.
     sem_index: usize,
     frame_counter: u32,
+
+    loaded: bool,
 }
 
 /// Engine implementation.
@@ -1038,6 +1040,7 @@ impl<B: Backend> EngineState<B> {
             transform_buffer,
             lights_buffer,
             frame_counter: 0,
+            loaded: false,
         }
     }
 
@@ -1109,18 +1112,23 @@ impl<B: Backend> EngineState<B> {
         // Get command buffer from the current frame pool.
         unsafe { command_pool.reset(false) };
 
-        // Write meshes and their transforms.
-        self.vertex_buffer.reset();
+        // Write vertices.
+        if !self.loaded {
+            self.vertex_buffer.reset();
+            for mesh in meshes {
+                let vertex_num = mesh.triangles.len() * 3;
+                let vertex_prt = mesh.triangles.as_ptr() as *const u8;
+                self.vertex_buffer.copy(gpu, vertex_prt, vertex_num);    
+            }
+            self.loaded = true;
+        }
+                
+        // Write transforms.
         self.transform_buffer.reset();
         for mesh in meshes {
-            // Write transform matrix.
             let transform_num = 1;
             let transform_ptr = mesh.transform.as_ptr() as *const u8;
             self.transform_buffer.copy(gpu, transform_ptr, transform_num);
-            // Write mesh.
-            let vertex_num = mesh.triangles.len() * 3;
-            let vertex_prt = mesh.triangles.as_ptr() as *const u8;
-            self.vertex_buffer.copy(gpu, vertex_prt, vertex_num);
         }
 
         // Write lights.
