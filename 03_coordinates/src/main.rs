@@ -1,18 +1,15 @@
 extern crate gfx_backend_metal as back;
 extern crate gfx_hal as hal;
-extern crate nalgebra as na;
 extern crate nalgebra_glm as glm;
 
 use core::ops::Range;
 use std::borrow::Borrow;
-use std::f32::consts::PI;
 use std::io;
 use std::iter;
 use std::mem;
 use std::time;
 
 use gfx::memory::cast_slice;
-use glm::Mat4;
 use hal::{Backend, Instance};
 use hal::adapter::{Adapter, Gpu, PhysicalDevice};
 use hal::command;
@@ -37,7 +34,16 @@ use winit::{Event, EventsLoop, Window, WindowBuilder, WindowEvent};
 use winit::dpi::{LogicalPosition, LogicalSize};
 use zstd;
 
-use class3::{Buffer, DepthImage, FrameImage, LightSource, LightSources, Mesh, Triangle, Vertex, VertexBlock};
+use class3::{
+    Buffer,
+    DepthImage,
+    FrameImage,
+    LightSource,
+    LightInfo,
+    Mesh,
+    Triangle,
+    Vertex,
+};
 
 fn main() {
 
@@ -47,8 +53,8 @@ fn main() {
     let title = String::from("GPU Learning Class: 03 Coordinates");
     let mut events_loop = EventsLoop::new();
     let mut size = LogicalSize {
-        width: 512.0,
-        height: 512.0,
+        width: 960.0,
+        height: 540.0,
     };
     let window = WindowBuilder::new()
         .with_dimensions(size)
@@ -102,50 +108,140 @@ fn main() {
             .unwrap()
     };
 
-    let model = {
+    // Load meshes and construct.
+
+    let mesh_bunny = {
         let zstd_bytes = include_bytes!("../assets/bunny.obj.zst");
         let zstd_reader = zstd::stream::Decoder::new(&zstd_bytes[..]).unwrap();
         let reader = io::BufReader::new(zstd_reader);
-        Mesh::load_from_obj(reader, Some(1.0)).unwrap()
+        Mesh::from_obj(reader).unwrap()
     };
 
-    let model1 = {
-        let s = 3.0;
-        let mut m = model.clone();
-        let scale = na::Vector3::new(s, s, s);
-        let translation = na::Vector3::new(0.0, 0.2, 0.0);
+    let mesh_sphere = {
+        let zstd_bytes = include_bytes!("../assets/sphere.obj.zst");
+        let zstd_reader = zstd::stream::Decoder::new(&zstd_bytes[..]).unwrap();
+        let reader = io::BufReader::new(zstd_reader);
+        Mesh::from_obj(reader).unwrap()
+    };
+
+    let mesh_plane = Mesh{
+        triangles: vec![
+            Triangle{vertices: [
+                Vertex{xyz: [ 1.0, 0.0, -1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [ 1.0, 0.0,  1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [-1.0, 0.0,  1.0], vn: [0.0, 1.0, 0.0]},
+            ]},
+            Triangle{vertices: [
+                Vertex{xyz: [-1.0, 0.0, -1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [ 1.0, 0.0, -1.0], vn: [0.0, 1.0, 0.0]},
+                Vertex{xyz: [-1.0, 0.0,  1.0], vn: [0.0, 1.0, 0.0]},
+            ]},
+        ],
+        transform: glm::Mat4::identity(),
+    };
+
+    let bunny_1 = {
+        let s = 3.2;
+        let mut m = mesh_bunny.clone();
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.0, 0.0, 0.45]);
         m.transform = glm::scale(&m.transform, &scale);
         m.transform = glm::translate(&m.transform, &translation);
         m
     };
 
-    let model2 = {
-        let s = 3.0;
-        let mut m = model.clone();
-        let scale = na::Vector3::new(s, s, s);
-        let translation = na::Vector3::new(-0.2, 0.0, 0.0);
+    let bunny_2 = {
+        let s = 1.0;
+        let mut m = mesh_bunny.clone();
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[-0.3, -0.15, 1.2]);
         m.transform = glm::scale(&m.transform, &scale);
         m.transform = glm::translate(&m.transform, &translation);
         m
     };
 
-    let model3 = {
-        let s = 3.0;
-        let mut m = model.clone();
-        let scale = na::Vector3::new(s, s, s);
-        let translation = na::Vector3::new(0.2, 0.0, 0.0);
+    let bunny_3 = {
+        let s = 1.0;
+        let mut m = mesh_bunny.clone();
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.3, -0.15, 1.2]);
         m.transform = glm::scale(&m.transform, &scale);
         m.transform = glm::translate(&m.transform, &translation);
         m
     };
 
-    let mut models = vec![
-        model1,
-        model2,
-        model3,
+    let terrain = {
+        let s = 5.0;
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.0, -0.3, 1.0]);
+        let mut m = mesh_plane.clone();
+        m.transform = glm::translate(&m.transform, &translation);
+        m.transform = glm::scale(&m.transform, &scale);
+        m
+    };
+
+    let light_source_1 = {
+        let s = 0.03;
+        let scale = glm::make_vec3(&[s, s, s]);
+        let translation = glm::make_vec3(&[0.0, 0.0, 1.0]);
+        let mut m = mesh_sphere.clone();
+        m.transform = glm::translate(&m.transform, &translation);
+        m.transform = glm::scale(&m.transform, &scale);
+        m
+    };
+
+    let light_source_2 = {
+        let mut m = light_source_1.clone();
+        *m.transform.index_mut((0, 3)) = 0.32;
+        *m.transform.index_mut((1, 3)) = -0.28;
+        *m.transform.index_mut((2, 3)) = 1.0;
+        m
+    };
+
+    let mut meshes = vec![
+        terrain,
+        light_source_1,
+        light_source_2,
+        bunny_1,
+        bunny_2,
+        bunny_3,
     ];
 
-    let rotation_vector = &glm::make_vec3(&[0.0, 1.0, 0.0]);
+    let mut lights = vec![
+        LightSource{
+            xyz: [0.0, 0.5, -0.6, 0.0],
+            color: [1.0, 0.95, 0.95, 1.0],
+        },
+        LightSource{
+            xyz: [0.32, -0.28, 1.0, 0.0],
+            color: [0.55, 0.55, 1.0, 1.0],
+        },
+    ];
+
+    // Rotation axis for meshes.
+    let rot = &glm::make_vec3(&[0.0, 1.0, 0.0]);
+
+    // Camera view and projection matrices.
+    let vec_eye = glm::make_vec3(&[0.0, 0.0, 0.0]);
+    let vec_target = glm::make_vec3(&[0.0, 0.0, 10.0]);
+    let vec_up = glm::make_vec3(&[0.0, 1.0, 0.0]);
+    let v = glm::look_at_lh(&vec_eye, &vec_target, &vec_up);
+
+    let p_near = 0.1;
+    let p_far  = 1000.0;
+    let p = {
+        let mut projection = glm::perspective_lh_zo(
+            size.width as f32 / size.height as f32,
+            f32::to_radians(50.0),
+            p_near,
+            p_far,
+        );
+        projection[(1, 1)] *= -1.0;
+        projection
+    };
+
+    let mat_pv = p.clone() * v.clone();
+    let mat_pv_inv = glm::inverse(&mat_pv);
 
     // Create our engine for drawing state.
     let mut engine = GraphicsEngine::init(
@@ -207,17 +303,44 @@ fn main() {
             is_resize_requested = false;
         }
 
-        for (i, m) in &mut models.iter_mut().enumerate() {
-            let speed = ((i as f32 + 1.0) / 5.0 + 1.0) * PI * 0.007;
-            m.transform = glm::rotate(&m.transform, speed, &rotation_vector);
+        for (i, m) in &mut meshes.iter_mut().enumerate() {
+            // Skip light and terrain meshes.
+            if i == 0 || i == 1 || i == 2 {
+                continue;
+            }
+            let speed =  (1.3 * i as f32 - 1.7) / 40.0;
+            m.transform = glm::rotate(&m.transform, speed, &rot);
         }
 
-        let x = (cursor_pose.x / size.width) as f32;
-        let y = (cursor_pose.y / size.height) as f32;
-        let z = ((cursor_pose.y + cursor_pose.x) / (size.height + size.width)) as f32;
+        //
+        // Project curso coordinates from screen space to world space.
+        //
 
-        // Draw state.
-        engine.draw(&models, [x, y, z]);
+        let screen_x = (cursor_pose.x / size.width)  as f32 * 2.0 - 1.0;
+        let screen_y = (cursor_pose.y / size.height) as f32 * 2.0 - 1.0;
+        let screen_z = 3.0;
+
+        let vec_xyzw = glm::make_vec4(&[screen_x, screen_y, screen_z, 0.0]);
+        let vec_mouse_world_xyzw = mat_pv_inv * vec_xyzw;
+        let vec_mouse_world_xyz = glm::make_vec3(&[
+             vec_mouse_world_xyzw[0],
+             vec_mouse_world_xyzw[1],
+             vec_mouse_world_xyzw[2] + 1.0,
+        ]);
+
+        *meshes[1].transform.index_mut((0, 3)) =  vec_mouse_world_xyz[0];
+        *meshes[1].transform.index_mut((1, 3)) =  vec_mouse_world_xyz[1];
+        *meshes[1].transform.index_mut((2, 3)) =  vec_mouse_world_xyz[2];
+
+        lights[0].xyz = [
+            vec_mouse_world_xyz[0],
+            vec_mouse_world_xyz[1],
+            vec_mouse_world_xyz[2],
+            0.0,
+        ];
+
+        // Draw meshes.
+        engine.draw(&v, &p, &meshes, &lights);
     }
 }
 
@@ -268,7 +391,7 @@ impl<B: Backend> GraphicsEngine<B> {
             window_size,
             pixel_format,
         );
-        let clear_color = [0.03, 0.03, 0.03, 1.0];
+        let clear_color = [0.05, 0.05, 0.05, 1.0];
         Self {
             gpu,
             queue_group,
@@ -303,8 +426,14 @@ impl<B: Backend> GraphicsEngine<B> {
     }
 
     /// Draw state draws the state and re-creates the swap-chain when it gets outdated.
-    pub fn draw(&mut self, models: &Vec<Mesh>, pose: [f32; 3]) {
-        //
+    pub fn draw(
+        &mut self,
+        v: &glm::Mat4,
+        p: &glm::Mat4,
+        models: &Vec<Mesh>,
+        lights: &Vec<LightSource>) {
+
+        // Update frame count.
         self.frame_i += 1;
         let begin_time = time::SystemTime::now();
 
@@ -313,8 +442,10 @@ impl<B: Backend> GraphicsEngine<B> {
             &mut self.gpu,
             &mut self.queue_group.queues[0],
             self.clear_color,
+            v,
+            p,
             models,
-            pose,
+            lights,
         );
 
         // If draw returned error, try to recreate swap-chain and render state.
@@ -330,7 +461,6 @@ impl<B: Backend> GraphicsEngine<B> {
 
         // Every 64 frame, calculate average FPS and display it the window title.
         if self.frame_i % 64 == 1 {
-            log::info!("light pose = {:?}", pose);
             let time_per_frame = (self.total_time as f64) / (self.total_frames as f64);
             let frames_per_second = 1_000_000.0 / time_per_frame;
             self.title = format!(
@@ -402,6 +532,7 @@ impl<B: Backend> GraphicsEngine<B> {
 }
 
 /// Manually destroy all resources allocated on GPU when graphics engine is dropped.
+///
 impl<B: Backend> Drop for GraphicsEngine<B> {
     fn drop(&mut self) {
         self.destroy_state();
@@ -409,6 +540,7 @@ impl<B: Backend> Drop for GraphicsEngine<B> {
 }
 
 /// Engine will be encapsulating the state management and the drawing logic.
+///
 struct EngineState<B: Backend> {
     // Swap-chain and a back-buffer. The back-buffer is the secondary buffer which is not currently
     // being displayed. The back buffer then becomes the front buffer (and vice versa).
@@ -437,12 +569,12 @@ struct EngineState<B: Backend> {
     // Graphic pipeline state objects and vertex buffer.
     pipeline: B::GraphicsPipeline,
     pipeline_layout: B::PipelineLayout,
-    _pipeline_descriptor_pool: B::DescriptorPool,
+    pipeline_descriptor_pool: B::DescriptorPool,
     pipeline_descriptor_set: B::DescriptorSet,
 
-    // Buffers
-    vertex_buffer: Buffer<B, Triangle>,
-    transform_buffer: Buffer<B, Mesh>,
+    // Pipeline resources.
+    vertex_buffer: Buffer<B, Vertex>,
+    transform_buffer: Buffer<B, glm::Mat4>,
     lights_buffer: Buffer<B, LightSource>,
 
     // Index of the currently displayed image in the swap-chain.
@@ -450,11 +582,8 @@ struct EngineState<B: Backend> {
     // in the back buffer of the swap-chain.
     sem_index: usize,
     frame_counter: u32,
-    loaded: bool,
 
-    // View-projection matrix.
-    v: glm::Mat4,
-    p: glm::Mat4,
+    loaded: bool,
 }
 
 /// Engine implementation.
@@ -468,21 +597,6 @@ impl<B: Backend> EngineState<B> {
         window_size: LogicalSize,
         pixel_format: format::Format,
     ) -> Self {
-        let v = glm::look_at_lh(
-            &glm::make_vec3(&[0.0, 1.0, -2.0]), // eye
-            &glm::make_vec3(&[0.0, 0.7, 0.0]),  // target
-            &glm::make_vec3(&[0.0, 1.0, 0.0]),  // "up"
-        );
-        let p = {
-            let mut projection = glm::perspective_lh_zo(
-                window_size.width as f32 / window_size.height as f32,
-                f32::to_radians(50.0),
-                0.01,
-                1000.0,
-            );
-            projection[(1, 1)] *= -1.0;
-            projection
-        };
 
         // 1. Create a swap-chain with back-buffer for surface and GPU. Back-buffer will contain the
         //    images which are currently not in front-buffer e.g. the image presented to the
@@ -693,11 +807,11 @@ impl<B: Backend> EngineState<B> {
         // Here we simply inline shader code using macro functions.
         // Both shaders will use their main functions as an entry point.
         let shader_entry = "main";
-        let shader_vert_file = "vertex.vert";
-        let shader_frag_file = "vertex.frag";
+        let shader_vert_file = "shader.vert";
+        let shader_frag_file = "shader.frag";
         let shader_vert_artifact = compiler
             .compile_into_spirv(
-                include_str!("vertex.vert"),
+                include_str!("shader.vert"),
                 shaderc::ShaderKind::Vertex,
                 shader_vert_file,
                 shader_entry,
@@ -706,7 +820,7 @@ impl<B: Backend> EngineState<B> {
             .unwrap();
         let shader_frag_artifact = compiler
             .compile_into_spirv(
-                include_str!("vertex.frag"),
+                include_str!("shader.frag"),
                 shaderc::ShaderKind::Fragment,
                 shader_frag_file,
                 shader_entry,
@@ -746,7 +860,7 @@ impl<B: Backend> EngineState<B> {
 
         // Describe vertex buffer format. We have only single description
         // for 2D position data.
-        let vertex_buffer_attributes = Vertex::vertex_buffer_attributes();
+        let buffer_attributes = Vertex::buffer_attributes();
         let vertex_attributes = Vertex::vertex_attributes();
 
         // Describe the rasterizer.
@@ -802,9 +916,18 @@ impl<B: Backend> EngineState<B> {
 
         // Create a vertex buffer. Here we are going to allocate buffer for just a
         // single triangle.
-        let vertex_buffer = Buffer::new_vertex_buffer(&adapter, &gpu, 100_000, String::from("vertex_buffer"));
-        let transform_buffer = Buffer::new_uniform(&adapter, &gpu, 10, String::from("transform_buffer"));
-        let lights_buffer = Buffer::new_uniform(&adapter, &gpu, 10, String::from("lights_buffer"));
+        let mut vertex_buffer: Buffer<B, Vertex> = Buffer::new_vertex_buffer(
+            &adapter, &gpu, 1_000_000);
+        let mut transform_buffer: Buffer<B, glm::Mat4> = Buffer::new_uniform_buffer(
+            &adapter, &gpu, 10);
+        let mut lights_buffer: Buffer<B, LightSource> = Buffer::new_uniform_buffer(
+            &adapter, &gpu, 10);
+
+        // Set buffer names.
+        vertex_buffer.set_name(&gpu, "vertex_buffer");
+        transform_buffer.set_name(&gpu, "transforms_buffer");
+        lights_buffer.set_name(&gpu, "lights_buffer");
+
         let constants_range = 2 * mem::size_of::<glm::Mat4>() as u32;
         let constants: Vec<(pso::ShaderStageFlags, Range<u32>)> = vec![
             (pso::ShaderStageFlags::GRAPHICS, 0..constants_range),
@@ -874,7 +997,7 @@ impl<B: Backend> EngineState<B> {
         let pipeline_desc = pso::GraphicsPipelineDesc {
             shaders: shaders_set,
             rasterizer,
-            vertex_buffers: vertex_buffer_attributes,
+            vertex_buffers: buffer_attributes,
             attributes: vertex_attributes,
             input_assembler: pso::InputAssemblerDesc::new(pipeline_primitive),
             blender,
@@ -910,7 +1033,7 @@ impl<B: Backend> EngineState<B> {
             present_semaphores,
             pipeline,
             pipeline_layout,
-            _pipeline_descriptor_pool: pipeline_descriptor_pool,
+            pipeline_descriptor_pool,
             pipeline_descriptor_set,
             sem_index,
             vertex_buffer,
@@ -918,8 +1041,6 @@ impl<B: Backend> EngineState<B> {
             lights_buffer,
             frame_counter: 0,
             loaded: false,
-            v,
-            p,
         }
     }
 
@@ -939,20 +1060,13 @@ impl<B: Backend> EngineState<B> {
         &mut self,
         gpu: &mut Gpu<B>,
         queue: &mut B::CommandQueue,
-        color: [f32; 4],
-        models: &Vec<Mesh>,
-        pose: [f32; 3],
+        clear_color: [f32; 4],
+        v: &glm::Mat4,
+        p: &glm::Mat4,
+        meshes: &Vec<Mesh>,
+        lights: &Vec<LightSource>,
     ) -> Result<(), String> {
         self.frame_counter += 1;
-
-        // Write triangle data to vertex buffer.
-        if !self.loaded {
-            self.loaded = true;
-            self.vertex_buffer.reset();
-            for model in models {
-                self.vertex_buffer.copy_from_src(gpu, model);
-            }
-        }
 
         // Get current semaphore index and corresponding semaphores.
         let sem_index = self.advance_semaphore_index();
@@ -998,35 +1112,38 @@ impl<B: Backend> EngineState<B> {
         // Get command buffer from the current frame pool.
         unsafe { command_pool.reset(false) };
 
-        // Write light uniforms.
-        let lights = LightSources{ sources: [
-            LightSource::white([pose[0], pose[1], 0.0, 0.0]),
-            LightSource::white([pose[1], pose[0], 0.0, 0.0]),
-            LightSource::white([pose[1], pose[0], 1.0, 0.0]),
-            LightSource::white([pose[1], pose[0], -1.0, 0.0]),
-            LightSource::white([pose[1], pose[0], 2.0, 0.0]),
-            LightSource::white([pose[0], pose[1], 2.0, 0.0]),
-            LightSource::empty(),
-            LightSource::empty(),
-            LightSource::empty(),
-            LightSource::empty(),
-        ]};
-
-        self.lights_buffer.reset();
-        self.lights_buffer.copy_from_src(gpu, &lights);
-
-        // Write transform uniforms for each model.
+        // Write vertices.
+        if !self.loaded {
+            self.vertex_buffer.reset();
+            for mesh in meshes {
+                let vertex_num = mesh.triangles.len() * 3;
+                let vertex_prt = mesh.triangles.as_ptr() as *const u8;
+                self.vertex_buffer.copy(gpu, vertex_prt, vertex_num);    
+            }
+            self.loaded = true;
+        }
+                
+        // Write transforms.
         self.transform_buffer.reset();
-        for model in models {
-            let transform_ptr = model.transform.as_slice().as_ptr() as *const u8;
-            let transform_size = mem::size_of::<glm::Mat4>();
-            self.transform_buffer.copy_from_ptr(gpu, transform_ptr, transform_size);
+        for mesh in meshes {
+            let transform_num = 1;
+            let transform_ptr = mesh.transform.as_ptr() as *const u8;
+            self.transform_buffer.copy(gpu, transform_ptr, transform_num);
         }
 
-        // Create command buffer to draw each model.
-        let mut recorded_buffers: Vec<B::CommandBuffer> = Vec::with_capacity(models.len());
+        // Write lights.
+        self.lights_buffer.reset();
+        let num = lights.len() as u32;
+        let num_info = LightInfo{
+            sources_num: [num, 0, 0, 0],
+            junk: [0, 0, 0, 0],
+        };
+        let num_ptr = &num_info as *const _ as *const u8;
+        let lights_ptr = lights.as_ptr() as *const u8;
+        self.lights_buffer.copy(gpu, num_ptr, 1);
+        self.lights_buffer.copy(gpu, lights_ptr, lights.len());
 
-        // Allocate buffer.
+        // Allocate command buffer.
         let mut command_buffer = match command_buffers.pop() {
             Some(b) => b,
             None => unsafe {
@@ -1044,14 +1161,13 @@ impl<B: Backend> EngineState<B> {
             command_buffer.bind_graphics_pipeline(&self.pipeline);
             command_buffer.bind_vertex_buffers(0, vertex_buffer_iter);
 
-
             command_buffer.begin_render_pass(
                 &self.render_pass,
                 frame_buffer,
                 frame_viewport.rect,
                 &[
                     command::ClearValue {
-                        color: command::ClearColor { float32: color },
+                        color: command::ClearColor { float32: clear_color },
                     },
                     command::ClearValue {
                         depth_stencil: command::ClearDepthStencil {
@@ -1063,19 +1179,18 @@ impl<B: Backend> EngineState<B> {
                 command::SubpassContents::Inline,
             );
 
-
             command_buffer.push_graphics_constants(
                 &self.pipeline_layout,
                 pso::ShaderStageFlags::GRAPHICS,
                 0,
-                cast_slice::<f32, u32>(self.p.as_slice()),
+                cast_slice::<f32, u32>(p.as_slice()),
             );
 
             command_buffer.push_graphics_constants(
                 &self.pipeline_layout,
                 pso::ShaderStageFlags::GRAPHICS,
-                mem::size_of::<Mat4>() as u32,
-                cast_slice::<f32, u32>(self.v.as_slice()),
+                mem::size_of::<glm::Mat4>() as u32,
+                cast_slice::<f32, u32>(v.as_slice()),
             );
 
             command_buffer.bind_graphics_descriptor_sets(&self.pipeline_layout,
@@ -1084,17 +1199,26 @@ impl<B: Backend> EngineState<B> {
                 &[],
             );
 
-            let total_vertices = 3 * models[0].triangles.len() as u32 * 3;
-            command_buffer.draw(0..total_vertices, 0..3);
+            let mut offset: u32 = 0;
+            for (i, mesh) in meshes.iter().enumerate() {
+                let mesh_vertices_num = mesh.triangles.len() as u32 * 3;
+                let mesh_vertices_range = offset..offset+mesh_vertices_num;
+                let mesh_instance_range = i as u32 .. (i + 1) as u32;
 
+                command_buffer.draw(
+                    mesh_vertices_range,
+                    mesh_instance_range,
+                );
+
+                offset += mesh_vertices_num;
+            }
 
             command_buffer.end_render_pass();
             command_buffer.finish();
 
         }
 
-        recorded_buffers.push(command_buffer);
-
+        let mut recorded_buffers = vec![command_buffer];
 
         // Create queue submission for the swapchain.
         let submission = queue::Submission {

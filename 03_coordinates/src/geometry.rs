@@ -13,9 +13,8 @@ use hal::pso::{
     VertexBufferDesc,
     VertexInputRate};
 
-use crate::buffer_object::{BlocksSource, FlatBlock, VertexBlock};
-
-/// Vertex with position in 3D space.
+/// Vertex type.
+///
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct Vertex {
@@ -25,8 +24,13 @@ pub struct Vertex {
     pub vn: [f32; 3],
 }
 
-impl VertexBlock for Vertex {
-    fn vertex_buffer_attributes() -> Vec<VertexBufferDesc> {
+/// Implementation.
+///
+impl Vertex {
+
+    /// Vertex buffer attributes.
+    ///
+    pub fn buffer_attributes() -> Vec<VertexBufferDesc> {
         vec![VertexBufferDesc {
             binding: 0,
             stride: mem::size_of::<Self>() as u32,
@@ -34,7 +38,9 @@ impl VertexBlock for Vertex {
         }]
     }
 
-    fn vertex_attributes() -> Vec<AttributeDesc> {
+    /// Vertex element attributes.
+    ///
+    pub fn vertex_attributes() -> Vec<AttributeDesc> {
         let xyz_offset = 0;
         let vn_offset = mem::size_of::<[f32; 3]>() as u32;
         vec![
@@ -58,19 +64,16 @@ impl VertexBlock for Vertex {
     }
 }
 
-/// Triangle in 3D space.
+/// Triangle type.
+///
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Triangle {
     pub vertices: [Vertex; 3],
 }
 
-impl FlatBlock for Triangle {
-    fn stride_size() -> u32 {
-        return mem::size_of::<Self>() as u32;
-    }
-}
-
+/// Collection of polygons in model space.
+///
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Mesh {
@@ -78,18 +81,13 @@ pub struct Mesh {
     pub transform: glm::Mat4,
 }
 
-impl FlatBlock for Mesh {
-    fn stride_size() -> u32 {
-        return mem::size_of::<glm::Mat4>() as u32;
-    }
-}
-
 /// Implementation of mesh.
+///
 impl Mesh {
 
-    /// Load model from obj stream reader.
-    /// Perhaps move it to separate type.
-    pub fn load_from_obj<R: io::BufRead>(reader: R, scale: Option<f32>) -> io::Result<Mesh> {
+    /// Load mesh from obj file stream reader.
+    ///
+    pub fn from_obj<R: io::BufRead>(reader: R) -> io::Result<Mesh> {
 
         // Create mappings from vertices and faces into their infos.
         let mut vertex_pose: HashMap<usize, [f32; 3]> = HashMap::with_capacity(2_000_000);
@@ -118,7 +116,7 @@ impl Mesh {
             }
         }
 
-        // Calculate normales for each face (triangle).
+        // Calculate normals for each face (triangle).
         let face_norms: HashMap<usize, glm::Vec3> = face_vertex.iter().map(|(face_idx, face_vertices)| {
             let v1_idx = face_vertices[0];
             let v2_idx = face_vertices[1];
@@ -134,7 +132,7 @@ impl Mesh {
             (*face_idx, face_norm)
         }).collect();
 
-        // Calculate normales for each vertex by averaging all it's triangle normales.
+        // Calculate normals for each vertex by averaging all it's triangle normals.
         let vertex_norms: HashMap<usize, [f32; 3]> = vertex_face.iter().map(|(vertex_id, vertex_faces)| {
             let mut norm = glm::Vec3::new(0.0, 0.0, 0.0);
             for f_id in vertex_faces {
@@ -167,22 +165,6 @@ impl Mesh {
             }
         }).collect();
 
-        let mut m = glm::Mat4::identity();
-        if let Some(factor) = scale {
-            let m_scale = glm::Vec3::new(factor, factor, factor);
-            m = glm::scale(&m, &m_scale);
-        }
-
-        Ok(Mesh { transform: m, triangles })
-    }
-}
-
-/// Implementation of FlatObjectContainer for Model.
-impl BlocksSource<Triangle> for Mesh {
-    fn len(&self) -> u32 {
-        return self.triangles.len() as u32;
-    }
-    fn ptr(&self) -> *const u8 {
-        return &self.triangles[0] as *const _ as *const u8;
+        Ok(Mesh { transform: glm::Mat4::identity(), triangles })
     }
 }
