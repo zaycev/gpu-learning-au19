@@ -4,6 +4,7 @@
 #define PI 3.14159265
 #define GAMMA 2.2
 
+// LightSource contains position and color of a single ligt source.
 struct LightSource
 {
     vec4 pose;
@@ -11,7 +12,7 @@ struct LightSource
 };
 
 //
-// Inputs/outputs.
+// Inputs.
 //
 
 layout (location = 1) in vec3      in_norm;
