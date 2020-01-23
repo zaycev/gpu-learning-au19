@@ -104,7 +104,7 @@ impl<B: Backend, T:Sized> Buffer<B, T> {
             adapter,
             gpu,
             capacity,
-            buffer::Usage::VERTEX,
+            buffer::Usage::UNIFORM,
             memory::Properties::DEVICE_LOCAL,
         )
     }
@@ -139,11 +139,12 @@ impl<B: Backend, T:Sized> Buffer<B, T> {
 
         let dts_start = offset as u64;
         let dst_end = (offset + size) as u64;
-
         let flush_range = iter::once((&self.memory, dts_start..dst_end));
 
         unsafe {
-            let dst_ptr = gpu.device.map_memory(&self.memory, dts_start..dst_end).unwrap();
+            let dst_ptr = gpu.device
+                .map_memory(&self.memory, dts_start..dst_end)
+                .unwrap();
             ptr::copy_nonoverlapping(src, dst_ptr, size);
             gpu.device.flush_mapped_memory_ranges(flush_range).unwrap();
         }
