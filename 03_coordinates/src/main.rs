@@ -809,11 +809,11 @@ impl<B: Backend> EngineState<B> {
         // Here we simply inline shader code using macro functions.
         // Both shaders will use their main functions as an entry point.
         let shader_entry = "main";
-        let shader_vert_file = "frag_shader.glsl";
-        let shader_frag_file = "vert_shader.glsl";
+        let shader_vert_file = "vert_shader.glsl";
+        let shader_frag_file = "frag_shader.glsl";
         let shader_vert_artifact = compiler
             .compile_into_spirv(
-                include_str!("shaders/frag_shader.glsl"),
+                include_str!("shaders/vert_shader.glsl"),
                 shaderc::ShaderKind::Vertex,
                 shader_vert_file,
                 shader_entry,
@@ -822,7 +822,7 @@ impl<B: Backend> EngineState<B> {
             .unwrap();
         let shader_frag_artifact = compiler
             .compile_into_spirv(
-                include_str!("shaders/vert_shader.glsl"),
+                include_str!("shaders/frag_shader.glsl"),
                 shaderc::ShaderKind::Fragment,
                 shader_frag_file,
                 shader_entry,
