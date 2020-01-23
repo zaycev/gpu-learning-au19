@@ -101,6 +101,7 @@ fn main() {
             supports_surface && supports_graphics && supports_compute
         })
         .unwrap();
+
     let gpu = unsafe {
         adapter
             .physical_device
@@ -114,14 +115,14 @@ fn main() {
         let zstd_bytes = include_bytes!("../assets/bunny.obj.zst");
         let zstd_reader = zstd::stream::Decoder::new(&zstd_bytes[..]).unwrap();
         let reader = io::BufReader::new(zstd_reader);
-        Mesh::from_obj(reader).unwrap()
+        Mesh::read_from_obj(reader).unwrap()
     };
 
     let mesh_sphere = {
         let zstd_bytes = include_bytes!("../assets/sphere.obj.zst");
         let zstd_reader = zstd::stream::Decoder::new(&zstd_bytes[..]).unwrap();
         let reader = io::BufReader::new(zstd_reader);
-        Mesh::from_obj(reader).unwrap()
+        Mesh::read_from_obj(reader).unwrap()
     };
 
     let mesh_plane = Mesh{
@@ -143,6 +144,7 @@ fn main() {
     let bunny_1 = {
         let s = 3.2;
         let mut m = mesh_bunny.clone();
+
         let scale = glm::make_vec3(&[s, s, s]);
         let translation = glm::make_vec3(&[0.0, 0.0, 0.45]);
         m.transform = glm::scale(&m.transform, &scale);
@@ -312,25 +314,23 @@ fn main() {
             m.transform = glm::rotate(&m.transform, speed, &rot);
         }
 
-        //
-        // Project curso coordinates from screen space to world space.
-        //
+        // Project cursor coordinates from screen space to world space.
 
         let screen_x = (cursor_pose.x / size.width)  as f32 * 2.0 - 1.0;
         let screen_y = (cursor_pose.y / size.height) as f32 * 2.0 - 1.0;
         let screen_z = 3.0;
 
         let vec_xyzw = glm::make_vec4(&[screen_x, screen_y, screen_z, 0.0]);
-        let vec_mouse_world_xyzw = mat_pv_inv * vec_xyzw;
+        let vec_mouse_world_xyzw = mat_pv_inv.clone() * vec_xyzw;
         let vec_mouse_world_xyz = glm::make_vec3(&[
              vec_mouse_world_xyzw[0],
              vec_mouse_world_xyzw[1],
              vec_mouse_world_xyzw[2] + 1.0,
         ]);
 
-        *meshes[1].transform.index_mut((0, 3)) =  vec_mouse_world_xyz[0];
-        *meshes[1].transform.index_mut((1, 3)) =  vec_mouse_world_xyz[1];
-        *meshes[1].transform.index_mut((2, 3)) =  vec_mouse_world_xyz[2];
+        *meshes[1].transform.index_mut((0, 3)) = vec_mouse_world_xyz[0];
+        *meshes[1].transform.index_mut((1, 3)) = vec_mouse_world_xyz[1];
+        *meshes[1].transform.index_mut((2, 3)) = vec_mouse_world_xyz[2];
 
         lights[0].xyz = [
             vec_mouse_world_xyz[0],
@@ -347,6 +347,7 @@ fn main() {
 /// GraphicsEngine will encapsulate the logic of drawing to surface with one gpu
 /// and re-creating the swap-chain when it gets outdated (for example, when the
 /// window size gets changed).
+///
 pub struct GraphicsEngine<B: Backend> {
     surface: B::Surface,
     adapter: Adapter<B>,
@@ -370,6 +371,7 @@ pub struct GraphicsEngine<B: Backend> {
 }
 
 /// GraphicsEngine implementation.
+///
 impl<B: Backend> GraphicsEngine<B> {
     /// Creates a new graphics engine.
     pub fn init(
@@ -1112,17 +1114,17 @@ impl<B: Backend> EngineState<B> {
         // Get command buffer from the current frame pool.
         unsafe { command_pool.reset(false) };
 
-        // Write vertices.
+        // Write vertices (once);
         if !self.loaded {
             self.vertex_buffer.reset();
             for mesh in meshes {
                 let vertex_num = mesh.triangles.len() * 3;
                 let vertex_prt = mesh.triangles.as_ptr() as *const u8;
-                self.vertex_buffer.copy(gpu, vertex_prt, vertex_num);    
+                self.vertex_buffer.copy(gpu, vertex_prt, vertex_num);
             }
             self.loaded = true;
         }
-                
+
         // Write transforms.
         self.transform_buffer.reset();
         for mesh in meshes {
@@ -1131,16 +1133,16 @@ impl<B: Backend> EngineState<B> {
             self.transform_buffer.copy(gpu, transform_ptr, transform_num);
         }
 
-        // Write lights.
+        // Write light info.
         self.lights_buffer.reset();
         let num = lights.len() as u32;
         let num_info = LightInfo{
             sources_num: [num, 0, 0, 0],
             junk: [0, 0, 0, 0],
         };
-        let num_ptr = &num_info as *const _ as *const u8;
+        let num_info_ptr = &num_info as *const _ as *const u8;
         let lights_ptr = lights.as_ptr() as *const u8;
-        self.lights_buffer.copy(gpu, num_ptr, 1);
+        self.lights_buffer.copy(gpu, num_info_ptr, 1);
         self.lights_buffer.copy(gpu, lights_ptr, lights.len());
 
         // Allocate command buffer.

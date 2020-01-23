@@ -8,13 +8,18 @@ use hal::format;
 use hal::image;
 
 /// FrameImage bundles color image with its view.
+///
 pub struct FrameImage<B: Backend> {
     pub image: B::Image,
     pub image_view: B::ImageView,
 }
 
+/// Implementation.
+///
 impl<B: Backend> FrameImage<B> {
-    /// Create frame buffer image (must be taken from backbuffer) with its view.
+
+    /// Create frame buffer image (must be taken from back-buffer) with its view.
+    ///
     pub fn new(gpu: &Gpu<B>, image: B::Image, pixel_format: format::Format) -> Self {
         let image_kind = image::ViewKind::D2;
         let image_format = pixel_format;

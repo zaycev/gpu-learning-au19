@@ -11,7 +11,8 @@ use hal::pso::{
     AttributeDesc,
     Element,
     VertexBufferDesc,
-    VertexInputRate};
+    VertexInputRate
+};
 
 /// Vertex type.
 ///
@@ -85,14 +86,14 @@ pub struct Mesh {
 ///
 impl Mesh {
 
-    /// Load mesh from obj file stream reader.
+    /// Reads mesh data from obj stream.
     ///
-    pub fn from_obj<R: io::BufRead>(reader: R) -> io::Result<Mesh> {
+    pub fn read_from_obj<R: io::BufRead>(reader: R) -> io::Result<Mesh> {
 
-        // Create mappings from vertices and faces into their infos.
-        let mut vertex_pose: HashMap<usize, [f32; 3]> = HashMap::with_capacity(2_000_000);
-        let mut vertex_face: HashMap<usize, Vec<usize>> = HashMap::with_capacity(2_000_000);
-        let mut face_vertex: HashMap<usize, [usize; 3]> = HashMap::with_capacity(2_000_000);
+        // Create mappings from vertices and faces into their info.
+        let mut vertex_pose: HashMap<usize, [f32; 3]> = HashMap::new();
+        let mut vertex_face: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut face_vertex: HashMap<usize, [usize; 3]> = HashMap::new();
 
         // Parse .obj lines.
         for line in reader.lines() {
@@ -110,20 +111,25 @@ impl Mesh {
                 let v3_idx = segments[3].parse::<usize>().unwrap();
                 let face_idx = face_vertex.len() + 1;
                 face_vertex.insert(face_idx, [v1_idx, v2_idx, v3_idx]);
-                vertex_face.entry(v1_idx).and_modify(|e| e.push(face_idx)).or_insert(vec![face_idx]);
-                vertex_face.entry(v2_idx).and_modify(|e| e.push(face_idx)).or_insert(vec![face_idx]);
-                vertex_face.entry(v3_idx).and_modify(|e| e.push(face_idx)).or_insert(vec![face_idx]);
+                vertex_face.entry(v1_idx)
+                    .and_modify(|e| e.push(face_idx))
+                    .or_insert(vec![face_idx]);
+                vertex_face.entry(v2_idx)
+                    .and_modify(|e| e.push(face_idx))
+                    .or_insert(vec![face_idx]);
+                vertex_face.entry(v3_idx)
+                    .and_modify(|e| e.push(face_idx))
+                    .or_insert(vec![face_idx]);
             }
         }
 
         // Calculate normals for each face (triangle).
-        let face_norms: HashMap<usize, glm::Vec3> = face_vertex.iter().map(|(face_idx, face_vertices)| {
-            let v1_idx = face_vertices[0];
-            let v2_idx = face_vertices[1];
-            let v3_idx = face_vertices[2];
-            let v1 = vertex_pose.get(&v1_idx).unwrap();
-            let v2 = vertex_pose.get(&v2_idx).unwrap();
-            let v3 = vertex_pose.get(&v3_idx).unwrap();
+        let face_norms: HashMap<usize, glm::Vec3> = face_vertex
+            .iter()
+            .map(|(face_idx, face_vertices)| {
+            let v1 = vertex_pose.get(&face_vertices[0]).unwrap();
+            let v2 = vertex_pose.get(&face_vertices[1]).unwrap();
+            let v3 = vertex_pose.get(&face_vertices[2]).unwrap();
             let face_norm = glm::triangle_normal(
                 &glm::Vec3::new(v1[0], v1[1], v1[2]),
                 &glm::Vec3::new(v2[0], v2[1], v2[2]),
@@ -132,8 +138,10 @@ impl Mesh {
             (*face_idx, face_norm)
         }).collect();
 
-        // Calculate normals for each vertex by averaging all it's triangle normals.
-        let vertex_norms: HashMap<usize, [f32; 3]> = vertex_face.iter().map(|(vertex_id, vertex_faces)| {
+        // Calculate normals.
+        let vertex_norms: HashMap<usize, [f32; 3]> = vertex_face
+            .iter()
+            .map(|(vertex_id, vertex_faces)| {
             let mut norm = glm::Vec3::new(0.0, 0.0, 0.0);
             for f_id in vertex_faces {
                 norm += face_norms.get(f_id).unwrap();
@@ -143,7 +151,9 @@ impl Mesh {
         }).collect();
 
 
-        let triangles: Vec<Triangle> = face_vertex.iter().map(|(_face_id, face_vertices)| {
+        let triangles: Vec<Triangle> = face_vertex
+            .iter()
+            .map(|(_face_id, face_vertices)| {
             let v1_idx = face_vertices[0];
             let v2_idx = face_vertices[1];
             let v3_idx = face_vertices[2];
