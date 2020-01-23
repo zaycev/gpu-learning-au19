@@ -918,12 +918,9 @@ impl<B: Backend> EngineState<B> {
 
         // Create a vertex buffer. Here we are going to allocate buffer for just a
         // single triangle.
-        let mut vertex_buffer: Buffer<B, Vertex> = Buffer::new_vertex_buffer(
-            &adapter, &gpu, 1_000_000);
-        let mut transform_buffer: Buffer<B, glm::Mat4> = Buffer::new_uniform_buffer(
-            &adapter, &gpu, 10);
-        let mut lights_buffer: Buffer<B, LightSource> = Buffer::new_uniform_buffer(
-            &adapter, &gpu, 10);
+        let mut vertex_buffer: Buffer<B, Vertex> = Buffer::new_vertex_buffer(&adapter, &gpu, 100_000);
+        let mut transform_buffer: Buffer<B, glm::Mat4> = Buffer::new_uniform_buffer(&adapter, &gpu, 8);
+        let mut lights_buffer: Buffer<B, LightSource> = Buffer::new_uniform_buffer(&adapter, &gpu, 8);
 
         // Set buffer names.
         vertex_buffer.set_name(&gpu, "vertex_buffer");
